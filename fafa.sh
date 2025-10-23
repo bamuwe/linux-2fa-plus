@@ -1,21 +1,38 @@
 #!/bin/bash
-#######################################################################
-# Linux 2FA 管理脚本
-# 功能：配置、强制、回滚、管理2FA
-# 支持：SSH、TTY、GUI登录
-#######################################################################
+################################################################################
+#
+# Linux 2FA 管理系统 v2.0
+#
+# 功能：
+#   - 2FA配置与管理（SSH、TTY、GUI）
+#   - 时间同步服务
+#   - 安全加固功能
+#   - 防溯源工具（内存文件系统、安全删除）
+#   - 故障诊断与修复
+#
+# 作者：基于编程随想的安全经验
+# 更新：2024-10-23
+# 许可：请遵守当地法律法规
+#
+################################################################################
 
-# 颜色定义
+#==============================================================================
+# 全局变量和颜色定义
+#==============================================================================
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
-NC='\033[0m' # No Color
+NC='\033[0m'       # No Color
 BOLD='\033[1m'
 
-# 日志函数
+#==============================================================================
+# 工具函数
+#==============================================================================
+
+# 日志输出函数
 log_info() {
     echo -e "${GREEN}[✓]${NC} $1"
 }
@@ -36,7 +53,7 @@ log_title() {
     echo -e "${CYAN}${BOLD}$1${NC}"
 }
 
-# 检查是否为root用户
+# 检查root权限
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         log_error "此脚本必须以root权限运行"
@@ -44,6 +61,10 @@ check_root() {
         exit 1
     fi
 }
+
+#==============================================================================
+# 用户界面
+#==============================================================================
 
 # 显示主菜单
 show_main_menu() {
@@ -82,10 +103,21 @@ show_main_menu() {
     echo -e "${GREEN}[22]${NC} SSH安全加固（密钥+2FA）"
     echo -e "${GREEN}[23]${NC} 隐私保护增强"
     echo ""
+    echo -e "${MAGENTA}═══ 故障诊断 ═══${NC}"
+    echo -e "${BLUE}[24]${NC} 诊断并修复2FA问题"
+    echo ""
+    echo -e "${MAGENTA}═══ 防溯源功能 ═══${NC}"
+    echo -e "${GREEN}[25]${NC} 内存文件系统管理"
+    echo -e "${GREEN}[26]${NC} 安全删除文件"
+    echo ""
     echo -e "${YELLOW}[0]${NC} 退出"
     echo ""
-    echo -n "请选择操作 [0-23]: "
+    echo -n "请选择操作 [0-26]: "
 }
+
+#==============================================================================
+# 核心功能 - 配置与管理
+#==============================================================================
 
 # 备份配置文件
 backup_configs() {
@@ -169,6 +201,18 @@ configure_user_2fa() {
     if [ $? -eq 0 ]; then
         log_info "2FA配置文件已生成"
         
+        # 确保 .google_authenticator 文件权限正确
+        if [ -f "$user_home/.google_authenticator" ]; then
+            # 设置正确的权限和归属（关键！）
+            chown "$username:$username" "$user_home/.google_authenticator"
+            chmod 600 "$user_home/.google_authenticator"
+            
+            # 移除可能存在的不可变属性
+            chattr -i "$user_home/.google_authenticator" 2>/dev/null
+            
+            log_info "已设置 .google_authenticator 权限为 600"
+        fi
+        
         # 显示二维码和密钥
         echo ""
         echo "=========================================="
@@ -208,7 +252,19 @@ EOF
             chmod 600 "$user_home/2fa-backup-codes.txt"
             
             log_info "恢复码已保存到: $user_home/2fa-backup-codes.txt"
+            
+            # 验证文件权限
+            actual_perm=$(stat -c "%a" "$user_home/.google_authenticator")
+            if [ "$actual_perm" = "600" ]; then
+                log_info "权限验证通过: $actual_perm"
+            else
+                log_warn "权限异常: $actual_perm (应该是600)"
+            fi
+            
             return 0
+        else
+            log_error ".google_authenticator 文件未找到"
+            return 1
         fi
     else
         log_error "2FA配置失败"
@@ -272,24 +328,56 @@ configure_tty_2fa() {
     fi
 }
 
+# 重启显示管理器
+restart_display_manager() {
+    log_step "重启显示管理器..."
+    
+    local restarted=false
+    
+    # 尝试重启各种显示管理器
+    if systemctl is-active --quiet gdm 2>/dev/null; then
+        systemctl restart gdm && restarted=true
+        log_info "GDM 已重启"
+    elif systemctl is-active --quiet gdm3 2>/dev/null; then
+        systemctl restart gdm3 && restarted=true
+        log_info "GDM3 已重启"
+    elif systemctl is-active --quiet lightdm 2>/dev/null; then
+        systemctl restart lightdm && restarted=true
+        log_info "LightDM 已重启"
+    elif systemctl is-active --quiet sddm 2>/dev/null; then
+        systemctl restart sddm && restarted=true
+        log_info "SDDM 已重启"
+    fi
+    
+    if [ "$restarted" = false ]; then
+        log_warn "未检测到运行中的显示管理器，无需重启"
+        return 1
+    fi
+    
+    return 0
+}
+
 # 配置GUI登录2FA
 configure_gui_2fa() {
     log_step "配置GUI图形界面登录的2FA..."
     
     local configured=false
+    local need_restart=false
     
-    # GDM
+    # GDM (GNOME Display Manager)
     if [ -f /etc/pam.d/gdm-password ]; then
         if grep -q "pam_google_authenticator.so" /etc/pam.d/gdm-password 2>/dev/null; then
             log_warn "GDM 2FA 已配置"
         else
+            # 在 @include common-auth 之后添加 2FA
             sed -i '/^@include common-auth/a auth required pam_google_authenticator.so nullok' /etc/pam.d/gdm-password
             log_info "GDM (GNOME) 2FA已配置"
             configured=true
+            need_restart=true
         fi
     fi
     
-    # LightDM
+    # LightDM (轻量级显示管理器)
     if [ -f /etc/pam.d/lightdm ]; then
         if grep -q "pam_google_authenticator.so" /etc/pam.d/lightdm 2>/dev/null; then
             log_warn "LightDM 2FA 已配置"
@@ -297,10 +385,11 @@ configure_gui_2fa() {
             sed -i '/^@include common-auth/a auth required pam_google_authenticator.so nullok' /etc/pam.d/lightdm
             log_info "LightDM 2FA已配置"
             configured=true
+            need_restart=true
         fi
     fi
     
-    # SDDM
+    # SDDM (Simple Desktop Display Manager - KDE)
     if [ -f /etc/pam.d/sddm ]; then
         if grep -q "pam_google_authenticator.so" /etc/pam.d/sddm 2>/dev/null; then
             log_warn "SDDM 2FA 已配置"
@@ -308,12 +397,30 @@ configure_gui_2fa() {
             sed -i '/^@include common-auth/a auth required pam_google_authenticator.so nullok' /etc/pam.d/sddm
             log_info "SDDM (KDE) 2FA已配置"
             configured=true
+            need_restart=true
         fi
     fi
     
     if [ "$configured" = false ]; then
         log_warn "未检测到GUI显示管理器"
+        return 1
     fi
+    
+    # 如果配置有更新，重启显示管理器
+    if [ "$need_restart" = true ]; then
+        echo ""
+        log_warn "GUI显示管理器需要重启以应用配置"
+        read -p "是否现在重启显示管理器？(y/n): " restart_dm
+        
+        if [[ $restart_dm =~ ^[Yy]$ ]]; then
+            restart_display_manager
+        else
+            log_warn "请稍后手动重启显示管理器"
+            log_step "重启命令: systemctl restart gdm (或 lightdm/sddm)"
+        fi
+    fi
+    
+    return 0
 }
 
 # 测试SSH配置
@@ -2060,14 +2167,59 @@ EOF
         log_step "清理命令历史..."
         
         for home in /home/*; do
+            # Shell历史
             [ -f "$home/.bash_history" ] && > "$home/.bash_history"
             [ -f "$home/.zsh_history" ] && > "$home/.zsh_history"
+            
+            # 程序历史
+            [ -f "$home/.python_history" ] && rm -f "$home/.python_history"
+            [ -f "$home/.mysql_history" ] && rm -f "$home/.mysql_history"
+            [ -f "$home/.psql_history" ] && rm -f "$home/.psql_history"
+            [ -f "$home/.sqlite_history" ] && rm -f "$home/.sqlite_history"
+            
+            # 编辑器和工具历史
+            [ -f "$home/.lesshst" ] && rm -f "$home/.lesshst"
+            [ -f "$home/.viminfo" ] && rm -f "$home/.viminfo"
+            [ -f "$home/.wget-hsts" ] && rm -f "$home/.wget-hsts"
+            
+            # SSH历史
+            [ -f "$home/.ssh/known_hosts" ] && > "$home/.ssh/known_hosts"
+            
+            # 最近文件记录
+            [ -f "$home/.local/share/recently-used.xbel" ] && rm -f "$home/.local/share/recently-used.xbel"
+            [ -f "$home/.recently-used" ] && rm -f "$home/.recently-used"
+            
+            # 回收站
+            [ -d "$home/.local/share/Trash" ] && rm -rf "$home/.local/share/Trash/*" 2>/dev/null
+            
+            # 缓存
+            [ -d "$home/.cache" ] && rm -rf "$home/.cache/*" 2>/dev/null
         done
         
+        # Root用户
         [ -f /root/.bash_history ] && > /root/.bash_history
         [ -f /root/.zsh_history ] && > /root/.zsh_history
+        [ -f /root/.python_history ] && rm -f /root/.python_history
+        [ -f /root/.mysql_history ] && rm -f /root/.mysql_history
+        [ -f /root/.psql_history ] && rm -f /root/.psql_history
+        [ -f /root/.sqlite_history ] && rm -f /root/.sqlite_history
+        [ -f /root/.lesshst ] && rm -f /root/.lesshst
+        [ -f /root/.viminfo ] && rm -f /root/.viminfo
+        [ -f /root/.wget-hsts ] && rm -f /root/.wget-hsts
+        [ -f /root/.ssh/known_hosts ] && > /root/.ssh/known_hosts
+        [ -d /root/.cache ] && rm -rf /root/.cache/* 2>/dev/null
         
-        log_info "命令历史已清理"
+        log_info "所有用户痕迹已清理"
+        echo ""
+        log_step "已清理的内容："
+        echo "  ✓ Shell历史 (bash, zsh)"
+        echo "  ✓ 程序历史 (python, mysql, psql, sqlite)"
+        echo "  ✓ 编辑器历史 (vim, less)"
+        echo "  ✓ 工具历史 (wget)"
+        echo "  ✓ SSH known_hosts"
+        echo "  ✓ 最近文件记录"
+        echo "  ✓ 回收站"
+        echo "  ✓ 用户缓存"
     fi
     
     # 配置自动清理历史
@@ -2113,9 +2265,1047 @@ EOF
     read -p "按Enter返回主菜单..."
 }
 
+# 选项24: 诊断并修复2FA问题
+option_diagnose_and_fix() {
+    clear
+    log_title "══════════════════════════════════════════"
+    log_title "  2FA问题诊断与修复"
+    log_title "══════════════════════════════════════════"
+    echo ""
+    
+    log_step "开始诊断2FA配置..."
+    echo ""
+    
+    # 1. 检测显示管理器
+    echo -e "${BOLD}[1/6] 检测显示管理器${NC}"
+    DM=""
+    PAM_FILE=""
+    
+    if systemctl is-active --quiet gdm || systemctl is-active --quiet gdm3; then
+        DM="GDM (GNOME)"
+        PAM_FILE="/etc/pam.d/gdm-password"
+        log_info "检测到: $DM"
+    elif systemctl is-active --quiet lightdm; then
+        DM="LightDM"
+        PAM_FILE="/etc/pam.d/lightdm"
+        log_info "检测到: $DM"
+    elif systemctl is-active --quiet sddm; then
+        DM="SDDM (KDE)"
+        PAM_FILE="/etc/pam.d/sddm"
+        log_info "检测到: $DM"
+    else
+        log_warn "未检测到运行中的显示管理器"
+    fi
+    echo ""
+    
+    # 2. 检查PAM配置
+    echo -e "${BOLD}[2/6] 检查PAM配置${NC}"
+    issues_found=0
+    
+    if [ -n "$PAM_FILE" ] && [ -f "$PAM_FILE" ]; then
+        # 检查 common-auth
+        if grep -q "^@include common-auth" "$PAM_FILE"; then
+            log_info "@include common-auth 存在（正常）"
+        else
+            log_error "@include common-auth 缺失！"
+            ((issues_found++))
+        fi
+        
+        # 检查 2FA 配置
+        if grep -q "pam_google_authenticator.so" "$PAM_FILE"; then
+            log_info "2FA模块已配置"
+            
+            # 检查 nullok
+            if grep "pam_google_authenticator.so" "$PAM_FILE" | grep -q "nullok"; then
+                log_info "nullok 参数存在"
+            else
+                log_warn "nullok 参数缺失（强制模式）"
+            fi
+        else
+            log_warn "2FA模块未配置"
+        fi
+        
+        # 检查文件权限
+        perm=$(stat -c "%a" "$PAM_FILE")
+        if [ "$perm" = "644" ]; then
+            log_info "PAM文件权限正确: $perm"
+        else
+            log_warn "PAM文件权限异常: $perm (应该是644)"
+            ((issues_found++))
+        fi
+    fi
+    echo ""
+    
+    # 3. 检查用户2FA文件
+    echo -e "${BOLD}[3/6] 检查用户2FA配置文件${NC}"
+    
+    fixed_count=0
+    for ga_file in /home/*/.google_authenticator /root/.google_authenticator; do
+        if [ -f "$ga_file" ]; then
+            username=$(echo "$ga_file" | cut -d'/' -f3)
+            if [ "$username" = "root" ]; then
+                username="root"
+            fi
+            
+            perm=$(stat -c "%a" "$ga_file")
+            owner=$(stat -c "%U:%G" "$ga_file")
+            
+            echo "  用户: $username"
+            echo "    文件: $ga_file"
+            echo "    权限: $perm"
+            echo "    归属: $owner"
+            
+            needs_fix=false
+            
+            # 检查权限
+            if [ "$perm" != "600" ]; then
+                log_warn "    权限错误！修复中..."
+                chmod 600 "$ga_file"
+                needs_fix=true
+                ((issues_found++))
+            fi
+            
+            # 检查不可变属性
+            if lsattr "$ga_file" 2>/dev/null | grep -q "^....i"; then
+                log_warn "    发现不可变属性！移除中..."
+                chattr -i "$ga_file"
+                needs_fix=true
+                ((issues_found++))
+            fi
+            
+            # 检查归属
+            expected_owner="$username:$username"
+            if [ "$owner" != "$expected_owner" ] && [ "$username" != "root" ]; then
+                log_warn "    归属错误！修复中..."
+                chown "$expected_owner" "$ga_file"
+                needs_fix=true
+                ((issues_found++))
+            fi
+            
+            if [ "$needs_fix" = true ]; then
+                log_info "    ✓ 已修复"
+                ((fixed_count++))
+            else
+                log_info "    ✓ 配置正常"
+            fi
+            echo ""
+        fi
+    done
+    
+    if [ $fixed_count -eq 0 ]; then
+        log_info "所有用户2FA文件配置正常"
+    else
+        log_info "已修复 $fixed_count 个用户的2FA文件"
+    fi
+    echo ""
+    
+    # 4. 检查时间同步
+    echo -e "${BOLD}[4/6] 检查系统时间同步${NC}"
+    echo "  当前时间: $(date)"
+    
+    if systemctl is-active --quiet systemd-timesyncd; then
+        log_info "时间同步服务运行中（systemd-timesyncd）"
+    elif systemctl is-active --quiet chronyd; then
+        log_info "时间同步服务运行中（chronyd）"
+    elif systemctl is-active --quiet ntpd; then
+        log_info "时间同步服务运行中（ntpd）"
+    else
+        log_warn "时间同步服务未运行"
+        log_step "2FA需要准确的系统时间，建议启用时间同步"
+        ((issues_found++))
+    fi
+    echo ""
+    
+    # 5. 检查PAM模块
+    echo -e "${BOLD}[5/6] 检查PAM模块${NC}"
+    if [ -f /usr/lib/x86_64-linux-gnu/security/pam_google_authenticator.so ] || \
+       [ -f /usr/lib64/security/pam_google_authenticator.so ] || \
+       [ -f /lib/security/pam_google_authenticator.so ]; then
+        log_info "PAM Google Authenticator模块已安装"
+    else
+        log_error "PAM Google Authenticator模块未找到"
+        log_step "请安装: apt install libpam-google-authenticator"
+        ((issues_found++))
+    fi
+    echo ""
+    
+    # 6. 显示使用提示
+    echo -e "${BOLD}[6/6] GUI登录2FA使用提示${NC}"
+    echo ""
+    echo -e "${GREEN}正确的GUI登录方式:${NC}"
+    echo "  ┌─────────────────────────────────┐"
+    echo "  │ 用户名: yourname                │"
+    echo "  │ 密码: [password123456]          │"
+    echo "  │       ^^^^^^^^  ^^^^^^          │"
+    echo "  │       密码部分  2FA验证码       │"
+    echo "  └─────────────────────────────────┘"
+    echo ""
+    echo "  • 在密码框中输入: 密码+6位验证码"
+    echo "  • 连在一起输入，中间无空格"
+    echo "  • 示例: 密码是 'MyPass'，验证码是 '123456'"
+    echo "    →     输入 'MyPass123456'"
+    echo ""
+    
+    # 总结
+    echo "══════════════════════════════════════════"
+    echo -e "${BOLD}诊断总结${NC}"
+    echo "══════════════════════════════════════════"
+    echo ""
+    
+    if [ $issues_found -eq 0 ]; then
+        log_info "未发现问题，2FA配置正常"
+    else
+        log_warn "发现并尝试修复 $issues_found 个问题"
+        echo ""
+        log_step "如果问题仍然存在，请查看认证日志："
+        if [ -f /var/log/auth.log ]; then
+            echo "  sudo tail -f /var/log/auth.log"
+        elif [ -f /var/log/secure ]; then
+            echo "  sudo tail -f /var/log/secure"
+        else
+            echo "  sudo journalctl -xef -u $DM"
+        fi
+    fi
+    
+    echo ""
+    read -p "按Enter返回主菜单..."
+}
+
+# 选项25: 内存文件系统管理
+option_ramdisk_manager() {
+    clear
+    log_title "══════════════════════════════════════════"
+    log_title "  内存文件系统管理"
+    log_title "══════════════════════════════════════════"
+    echo ""
+    
+    log_step "内存文件系统（tmpfs/ramdisk）可用于："
+    echo "  • 敏感文件处理（重启后自动清除）"
+    echo "  • 临时工作区（不留磁盘痕迹）"
+    echo "  • 提高I/O性能"
+    echo "  • 防取证分析"
+    echo ""
+    
+    # 检查现有ramdisk
+    echo -e "${BOLD}当前内存文件系统状态:${NC}"
+    echo ""
+    df -h | grep -E "tmpfs|Size" | grep -v "run\|dev"
+    echo ""
+    
+    # 子菜单
+    echo "请选择操作："
+    echo "  [1] 创建新的内存盘"
+    echo "  [2] 卸载内存盘"
+    echo "  [3] 配置/tmp为tmpfs"
+    echo "  [4] 查看内存使用情况"
+    echo "  [0] 返回主菜单"
+    echo ""
+    read -p "请选择 [0-4]: " ramdisk_choice
+    
+    case $ramdisk_choice in
+        1)
+            # 创建新内存盘
+            echo ""
+            log_step "创建新的内存盘..."
+            
+            read -p "挂载点路径（如 /mnt/ramdisk）: " mount_point
+            if [ -z "$mount_point" ]; then
+                log_error "挂载点不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            read -p "大小（如 1G, 512M）[默认: 1G]: " size
+            size=${size:-1G}
+            
+            # 创建挂载点
+            if [ ! -d "$mount_point" ]; then
+                mkdir -p "$mount_point"
+                log_info "已创建目录: $mount_point"
+            fi
+            
+            # 挂载tmpfs（默认700权限）
+            mount -t tmpfs -o size=$size,mode=700 tmpfs "$mount_point"
+            
+            if [ $? -eq 0 ]; then
+                log_info "内存盘创建成功！"
+                echo ""
+                echo "挂载点: $mount_point"
+                echo "大小: $size"
+                
+                # 显示当前权限
+                current_perm=$(stat -c "%a" "$mount_point")
+                echo "当前权限: $current_perm"
+                echo ""
+                
+                # 询问是否修改权限
+                echo "权限选项："
+                echo "  700 - 仅root可访问（当前）"
+                echo "  755 - root可写，其他用户可读"
+                echo "  777 - 所有用户可读写"
+                echo "  1777 - 所有用户可读写，有粘滞位（类似/tmp）"
+                echo ""
+                read -p "是否修改权限？(y/n，默认保持700): " change_perm
+                
+                if [[ $change_perm =~ ^[Yy]$ ]]; then
+                    echo ""
+                    echo "请选择权限："
+                    echo "  [1] 700  - 仅root（默认）"
+                    echo "  [2] 755  - 其他用户可读"
+                    echo "  [3] 777  - 所有用户可写"
+                    echo "  [4] 1777 - 所有用户可写+粘滞位"
+                    read -p "选择 [1-4]: " perm_choice
+                    
+                    case $perm_choice in
+                        1)
+                            chmod 700 "$mount_point"
+                            log_info "权限设置为: 700 (仅root)"
+                            ;;
+                        2)
+                            chmod 755 "$mount_point"
+                            log_info "权限设置为: 755 (其他用户可读)"
+                            ;;
+                        3)
+                            chmod 777 "$mount_point"
+                            log_info "权限设置为: 777 (所有用户可写)"
+                            ;;
+                        4)
+                            chmod 1777 "$mount_point"
+                            log_info "权限设置为: 1777 (可写+粘滞位)"
+                            ;;
+                        *)
+                            log_info "保持默认权限: 700"
+                            ;;
+                    esac
+                    
+                    # 显示修改后的权限
+                    new_perm=$(stat -c "%a" "$mount_point")
+                    echo "最终权限: $new_perm"
+                else
+                    log_info "保持默认权限: 700 (仅root可访问)"
+                fi
+                
+                echo ""
+                df -h "$mount_point"
+                echo ""
+                log_warn "提示："
+                echo "  • 此内存盘在重启后会消失"
+                echo "  • 请勿存储需要持久化的数据"
+                echo "  • 使用完毕建议卸载: umount $mount_point"
+                echo ""
+                
+                # 询问是否永久化配置
+                read -p "是否添加到/etc/fstab（开机自动挂载）? (y/n): " add_fstab
+                if [[ $add_fstab =~ ^[Yy]$ ]]; then
+                    # 检查是否已存在
+                    if grep -q "$mount_point" /etc/fstab; then
+                        log_warn "该挂载点已在/etc/fstab中"
+                    else
+                        echo "tmpfs $mount_point tmpfs defaults,noatime,mode=700,size=$size 0 0" >> /etc/fstab
+                        log_info "已添加到/etc/fstab"
+                    fi
+                fi
+            else
+                log_error "创建失败"
+            fi
+            ;;
+            
+        2)
+            # 卸载内存盘
+            echo ""
+            log_step "卸载内存盘..."
+            
+            # 显示当前tmpfs
+            echo "当前tmpfs挂载点："
+            mount | grep tmpfs | grep -v "run\|dev\|sys" | nl
+            echo ""
+            
+            read -p "要卸载的挂载点（完整路径）: " umount_point
+            
+            if [ -z "$umount_point" ]; then
+                log_error "挂载点不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 检查是否有文件
+            if [ -d "$umount_point" ]; then
+                file_count=$(find "$umount_point" -type f 2>/dev/null | wc -l)
+                if [ $file_count -gt 0 ]; then
+                    log_warn "该内存盘包含 $file_count 个文件"
+                    read -p "确认卸载（数据将丢失）? (yes/no): " confirm
+                    if [ "$confirm" != "yes" ]; then
+                        log_info "已取消"
+                        read -p "按Enter返回..."
+                        return
+                    fi
+                fi
+            fi
+            
+            umount "$umount_point"
+            
+            if [ $? -eq 0 ]; then
+                log_info "卸载成功: $umount_point"
+                
+                # 询问是否从fstab移除
+                if grep -q "$umount_point" /etc/fstab; then
+                    read -p "是否从/etc/fstab中移除? (y/n): " remove_fstab
+                    if [[ $remove_fstab =~ ^[Yy]$ ]]; then
+                        sed -i "\|$umount_point|d" /etc/fstab
+                        log_info "已从/etc/fstab移除"
+                    fi
+                fi
+            else
+                log_error "卸载失败"
+                echo "  可能原因："
+                echo "    - 挂载点不存在"
+                echo "    - 有进程正在使用"
+                echo "  尝试强制卸载: umount -l $umount_point"
+            fi
+            ;;
+            
+        3)
+            # 配置/tmp为tmpfs
+            echo ""
+            log_step "配置/tmp为内存文件系统..."
+            
+            log_warn "此操作将使/tmp目录使用内存而非硬盘"
+            echo "  优点："
+            echo "    • 重启自动清空"
+            echo "    • 不留磁盘痕迹"
+            echo "    • 提高性能"
+            echo "  注意："
+            echo "    • 需要足够的RAM"
+            echo "    • 大文件可能占用过多内存"
+            echo ""
+            
+            read -p "是否继续? (y/n): " confirm
+            if [[ ! $confirm =~ ^[Yy]$ ]]; then
+                log_info "已取消"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 检查是否已配置
+            if grep -q "^tmpfs.*\/tmp" /etc/fstab; then
+                log_warn "/tmp已配置为tmpfs"
+                cat /etc/fstab | grep "^tmpfs.*\/tmp"
+            else
+                read -p "/tmp大小 [默认: 2G]: " tmp_size
+                tmp_size=${tmp_size:-2G}
+                
+                # 添加到fstab
+                echo "tmpfs /tmp tmpfs defaults,noatime,mode=1777,size=$tmp_size 0 0" >> /etc/fstab
+                log_info "已添加到/etc/fstab"
+                
+                # 询问是否立即生效
+                read -p "是否现在挂载（会清空当前/tmp）? (y/n): " mount_now
+                if [[ $mount_now =~ ^[Yy]$ ]]; then
+                    mount -o remount /tmp
+                    
+                    if [ $? -eq 0 ]; then
+                        log_info "/tmp已重新挂载为tmpfs"
+                        
+                        # 检查权限
+                        echo ""
+                        current_perm=$(stat -c "%a" /tmp)
+                        echo "当前/tmp权限: $current_perm"
+                        
+                        if [ "$current_perm" != "1777" ]; then
+                            log_warn "权限不是1777，可能导致无法正常使用"
+                            echo ""
+                            echo "权限说明："
+                            echo "  1777 - 所有用户可读写执行，有粘滞位（推荐）"
+                            echo "  当前 - $current_perm"
+                            echo ""
+                            read -p "是否修改为1777？(y/n): " fix_perm
+                            
+                            if [[ $fix_perm =~ ^[Yy]$ ]]; then
+                                chmod 1777 /tmp
+                                new_perm=$(stat -c "%a" /tmp)
+                                log_info "权限已修改为: $new_perm"
+                                
+                                # 验证权限
+                                if [ "$new_perm" = "1777" ]; then
+                                    log_info "✓ 权限设置成功"
+                                    echo "  测试写入..."
+                                    if touch /tmp/.test-$$ 2>/dev/null; then
+                                        rm -f /tmp/.test-$$
+                                        log_info "✓ /tmp可正常使用"
+                                    else
+                                        log_error "✗ /tmp仍无法写入，请检查配置"
+                                    fi
+                                else
+                                    log_warn "权限修改可能失败，当前: $new_perm"
+                                fi
+                            else
+                                log_info "保持当前权限: $current_perm"
+                                log_warn "注意: 非1777权限可能导致程序无法使用/tmp"
+                            fi
+                        else
+                            log_info "✓ 权限正确: 1777"
+                            
+                            # 测试写入
+                            if touch /tmp/.test-$$ 2>/dev/null; then
+                                rm -f /tmp/.test-$$
+                                log_info "✓ /tmp可正常使用"
+                            fi
+                        fi
+                    else
+                        log_error "挂载失败"
+                    fi
+                else
+                    log_info "重启后生效"
+                    log_warn "重启后请检查/tmp权限是否为1777"
+                fi
+            fi
+            
+            # 可选：配置/var/tmp
+            echo ""
+            read -p "是否也将/var/tmp配置为tmpfs? (y/n): " var_tmp
+            if [[ $var_tmp =~ ^[Yy]$ ]]; then
+                if ! grep -q "^tmpfs.*\/var\/tmp" /etc/fstab; then
+                    echo "tmpfs /var/tmp tmpfs defaults,noatime,mode=1777,size=1G 0 0" >> /etc/fstab
+                    log_info "已配置/var/tmp"
+                fi
+            fi
+            ;;
+            
+        4)
+            # 查看内存使用
+            echo ""
+            log_step "内存使用情况..."
+            echo ""
+            
+            echo -e "${BOLD}总体内存:${NC}"
+            free -h
+            echo ""
+            
+            echo -e "${BOLD}tmpfs使用情况:${NC}"
+            df -h -t tmpfs | grep -v "run\|dev\|sys"
+            echo ""
+            
+            echo -e "${BOLD}所有tmpfs挂载点:${NC}"
+            mount | grep tmpfs | grep -v "run\|dev\|sys"
+            ;;
+            
+        0)
+            return
+            ;;
+            
+        *)
+            log_error "无效选项"
+            ;;
+    esac
+    
+    echo ""
+    read -p "按Enter返回主菜单..."
+}
+
+# 选项26: 安全删除文件
+option_secure_delete() {
+    clear
+    log_title "══════════════════════════════════════════"
+    log_title "  安全删除文件"
+    log_title "══════════════════════════════════════════"
+    echo ""
+    
+    log_step "安全删除通过多次覆盖防止数据恢复"
+    echo ""
+    
+    # 检查工具
+    echo -e "${BOLD}检查安全删除工具:${NC}"
+    
+    has_shred=false
+    has_wipe=false
+    has_srm=false
+    
+    if command -v shred &>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} shred (内置)"
+        has_shred=true
+    else
+        echo -e "  ${RED}✗${NC} shred"
+    fi
+    
+    if command -v wipe &>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} wipe"
+        has_wipe=true
+    else
+        echo -e "  ${YELLOW}!${NC} wipe (未安装)"
+    fi
+    
+    if command -v srm &>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} srm (secure-delete)"
+        has_srm=true
+    else
+        echo -e "  ${YELLOW}!${NC} srm (未安装)"
+    fi
+    
+    echo ""
+    
+    # 如果缺少工具，提示安装
+    if [ "$has_wipe" = false ] || [ "$has_srm" = false ]; then
+        log_step "安装缺失的工具？"
+        echo "  sudo apt install wipe secure-delete"
+        echo ""
+        read -p "是否现在安装? (y/n): " install_tools
+        if [[ $install_tools =~ ^[Yy]$ ]]; then
+            apt update
+            apt install -y wipe secure-delete
+            has_wipe=true
+            has_srm=true
+            echo ""
+        fi
+    fi
+    
+    # 选择操作
+    echo "请选择操作："
+    echo "  [1] 安全删除文件"
+    echo "  [2] 安全删除目录"
+    echo "  [3] 安全擦除整个分区/磁盘"
+    echo "  [4] 查看工具说明"
+    echo "  [0] 返回主菜单"
+    echo ""
+    read -p "请选择 [0-4]: " delete_choice
+    
+    case $delete_choice in
+        1)
+            # 安全删除文件
+            echo ""
+            log_step "安全删除文件..."
+            echo ""
+            
+            read -p "文件路径（支持通配符）: " file_path
+            
+            if [ -z "$file_path" ]; then
+                log_error "文件路径不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 检查文件是否存在
+            if ! ls $file_path &>/dev/null; then
+                log_error "文件不存在: $file_path"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 显示文件信息
+            echo "将要删除的文件："
+            ls -lh $file_path
+            echo ""
+            
+            # 选择工具
+            echo "选择删除工具："
+            [ "$has_shred" = true ] && echo "  [1] shred (快速，3次覆盖)"
+            [ "$has_wipe" = true ] && echo "  [2] wipe (标准，34次覆盖)"
+            [ "$has_srm" = true ] && echo "  [3] srm (安全，7次覆盖)"
+            echo ""
+            read -p "选择工具 [1-3]: " tool_choice
+            
+            # 最终确认
+            log_warn "⚠️  警告：此操作不可恢复！"
+            read -p "确认删除? 输入 'DELETE' 继续: " final_confirm
+            
+            if [ "$final_confirm" != "DELETE" ]; then
+                log_info "已取消"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "正在安全删除..."
+            
+            case $tool_choice in
+                1)
+                    if [ "$has_shred" = true ]; then
+                        for file in $file_path; do
+                            echo "删除: $file"
+                            shred -vfz -n 3 "$file"
+                        done
+                        log_info "删除完成（使用shred）"
+                    fi
+                    ;;
+                2)
+                    if [ "$has_wipe" = true ]; then
+                        wipe -rf $file_path
+                        log_info "删除完成（使用wipe）"
+                    fi
+                    ;;
+                3)
+                    if [ "$has_srm" = true ]; then
+                        srm -vz $file_path
+                        log_info "删除完成（使用srm）"
+                    fi
+                    ;;
+                *)
+                    log_error "无效选择"
+                    ;;
+            esac
+            ;;
+            
+        2)
+            # 安全删除目录
+            echo ""
+            log_step "安全删除目录..."
+            echo ""
+            
+            read -p "目录路径: " dir_path
+            
+            if [ -z "$dir_path" ]; then
+                log_error "目录路径不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            if [ ! -d "$dir_path" ]; then
+                log_error "目录不存在: $dir_path"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 显示目录信息
+            echo "目录信息："
+            du -sh "$dir_path"
+            echo "文件数量: $(find "$dir_path" -type f | wc -l)"
+            echo ""
+            
+            log_warn "⚠️  警告：将递归删除目录及所有内容！"
+            read -p "确认删除? 输入目录名确认: " confirm_dir
+            
+            if [ "$confirm_dir" != "$(basename "$dir_path")" ]; then
+                log_info "已取消"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "正在安全删除目录..."
+            
+            # 使用shred递归删除
+            find "$dir_path" -type f -exec shred -vfz -n 3 {} \;
+            rm -rf "$dir_path"
+            
+            log_info "目录已安全删除"
+            ;;
+            
+        3)
+            # 擦除分区/磁盘
+            echo ""
+            log_title "⚠️  危险操作：擦除分区/磁盘 ⚠️"
+            echo ""
+            
+            log_warn "此操作将永久销毁分区/磁盘上的所有数据！"
+            echo ""
+            
+            # 显示可用设备
+            echo "可用设备："
+            lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
+            echo ""
+            
+            read -p "要擦除的设备（如 /dev/sdb 或 /dev/sda3）: " device
+            
+            if [ -z "$device" ]; then
+                log_error "设备不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            if [ ! -b "$device" ]; then
+                log_error "设备不存在: $device"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 显示设备信息
+            echo ""
+            echo "设备信息:"
+            lsblk "$device"
+            fdisk -l "$device" 2>/dev/null | head -5
+            echo ""
+            
+            # 多重确认
+            log_warn "⚠️⚠️⚠️  最后警告  ⚠️⚠️⚠️"
+            echo "将要擦除: $device"
+            echo "所有数据将永久丢失！"
+            echo ""
+            read -p "输入设备路径确认 (如 /dev/sdb): " confirm1
+            
+            if [ "$confirm1" != "$device" ]; then
+                log_info "已取消"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            read -p "再次确认，输入 'ERASE' 继续: " confirm2
+            
+            if [ "$confirm2" != "ERASE" ]; then
+                log_info "已取消"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            echo "选择擦除方法："
+            echo "  [1] 零填充（快速，安全性低）"
+            echo "  [2] 随机数据（中速，安全性中）"
+            echo "  [3] 多次覆盖（慢速，安全性高）"
+            echo "  [4] shred（推荐，3次覆盖）"
+            echo ""
+            read -p "选择 [1-4]: " erase_method
+            
+            echo ""
+            log_step "开始擦除 $device ..."
+            echo ""
+            
+            case $erase_method in
+                1)
+                    dd if=/dev/zero of="$device" bs=1M status=progress
+                    ;;
+                2)
+                    dd if=/dev/urandom of="$device" bs=1M status=progress
+                    ;;
+                3)
+                    for i in {1..3}; do
+                        echo "第 $i 次覆盖..."
+                        dd if=/dev/urandom of="$device" bs=1M status=progress
+                    done
+                    ;;
+                4)
+                    shred -vfz -n 3 "$device"
+                    ;;
+                *)
+                    log_error "无效选择"
+                    read -p "按Enter返回..."
+                    return
+                    ;;
+            esac
+            
+            if [ $? -eq 0 ]; then
+                log_info "擦除完成！"
+                sync
+            else
+                log_error "擦除失败"
+            fi
+            ;;
+            
+        4)
+            # 工具说明
+            echo ""
+            log_title "安全删除工具说明"
+            echo ""
+            
+            echo -e "${BOLD}1. shred (系统内置)${NC}"
+            echo "   覆盖次数: 默认3次"
+            echo "   速度: 快"
+            echo "   命令示例: shred -vfz -n 10 文件"
+            echo "   参数:"
+            echo "     -v  显示进度"
+            echo "     -f  强制修改权限"
+            echo "     -z  最后用零覆盖"
+            echo "     -n  覆盖次数"
+            echo ""
+            
+            echo -e "${BOLD}2. wipe${NC}"
+            echo "   覆盖次数: 34次（符合DOD标准）"
+            echo "   速度: 中"
+            echo "   命令示例: wipe -rf 文件"
+            echo "   参数:"
+            echo "     -r  递归"
+            echo "     -f  强制"
+            echo "   安装: apt install wipe"
+            echo ""
+            
+            echo -e "${BOLD}3. srm (secure-delete)${NC}"
+            echo "   覆盖次数: 7次（Gutmann算法）"
+            echo "   速度: 中"
+            echo "   命令示例: srm -vz 文件"
+            echo "   参数:"
+            echo "     -v  详细输出"
+            echo "     -z  最后用零覆盖"
+            echo "   安装: apt install secure-delete"
+            echo ""
+            
+            echo -e "${BOLD}安全级别对比:${NC}"
+            echo "  shred (3次)   : 🟡 基础安全"
+            echo "  shred (10次)  : 🟢 良好安全"
+            echo "  srm (7次)     : 🟢 高安全"
+            echo "  wipe (34次)   : 🔵 最高安全"
+            echo ""
+            
+            echo -e "${BOLD}性能对比（1GB文件）:${NC}"
+            echo "  shred (3次)   : ~30秒"
+            echo "  srm (7次)     : ~60秒"
+            echo "  wipe (34次)   : ~180秒"
+            echo ""
+            
+            echo -e "${BOLD}推荐使用场景:${NC}"
+            echo "  日常文件:     shred -n 3"
+            echo "  敏感文件:     shred -n 10 或 srm"
+            echo "  极敏感文件:   wipe"
+            echo "  整盘擦除:     shred + dd"
+            ;;
+            
+        0)
+            return
+            ;;
+            
+        *)
+            log_error "无效选项"
+            ;;
+    esac
+    
+    echo ""
+    read -p "按Enter返回主菜单..."
+}
+
+#==============================================================================
+# 安全信息展示
+#==============================================================================
+
+# 显示安全信息（防渗透检测）
+show_security_info() {
+    clear
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${YELLOW}⚠️  系统安全信息检查（防渗透检测）${NC}${CYAN}                      ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    # 1. 上次登录信息
+    echo -e "${BOLD}━━━ [1] 上次登录信息 ━━━${NC}"
+    if command -v last >/dev/null 2>&1; then
+        echo "最近3次成功登录："
+        last -3 -w -a | grep -v "reboot\|wtmp" | head -3
+    else
+        echo "  未找到last命令"
+    fi
+    echo ""
+    
+    # 2. 当前登录会话
+    echo -e "${BOLD}━━━ [2] 当前活动会话 ━━━${NC}"
+    if command -v w >/dev/null 2>&1; then
+        w -h | head -5
+    else
+        who
+    fi
+    echo ""
+    
+    # 3. 最近失败的登录尝试
+    echo -e "${BOLD}━━━ [3] 失败登录尝试 ━━━${NC}"
+    if [ -f /var/log/auth.log ]; then
+        failed_count=$(grep -c "Failed password" /var/log/auth.log 2>/dev/null || echo "0")
+        echo "  总计失败尝试: $failed_count 次"
+        echo "  最近5次失败登录："
+        grep "Failed password" /var/log/auth.log 2>/dev/null | tail -5 | while read line; do
+            echo "    • $line" | cut -c1-100
+        done
+    elif [ -f /var/log/secure ]; then
+        failed_count=$(grep -c "Failed password" /var/log/secure 2>/dev/null || echo "0")
+        echo "  总计失败尝试: $failed_count 次"
+        echo "  最近5次失败登录："
+        grep "Failed password" /var/log/secure 2>/dev/null | tail -5 | while read line; do
+            echo "    • $line" | cut -c1-100
+        done
+    else
+        echo "  未找到认证日志"
+    fi
+    echo ""
+    
+    # 4. 最近的sudo使用
+    echo -e "${BOLD}━━━ [4] 最近sudo使用记录 ━━━${NC}"
+    if [ -f /var/log/auth.log ]; then
+        sudo_count=$(grep -c "sudo.*COMMAND" /var/log/auth.log 2>/dev/null || echo "0")
+        echo "  今日sudo使用: $sudo_count 次"
+        echo "  最近3次sudo命令："
+        grep "sudo.*COMMAND" /var/log/auth.log 2>/dev/null | tail -3 | while read line; do
+            echo "    • $(echo $line | awk '{print $1, $2, $3, $5, $6}' | cut -c1-80)"
+        done
+    elif [ -f /var/log/secure ]; then
+        sudo_count=$(grep -c "sudo.*COMMAND" /var/log/secure 2>/dev/null || echo "0")
+        echo "  今日sudo使用: $sudo_count 次"
+        echo "  最近3次sudo命令："
+        grep "sudo.*COMMAND" /var/log/secure 2>/dev/null | tail -3 | while read line; do
+            echo "    • $(echo $line | awk '{print $1, $2, $3, $5, $6}' | cut -c1-80)"
+        done
+    else
+        echo "  未找到sudo日志"
+    fi
+    echo ""
+    
+    # 5. 关键文件修改时间
+    echo -e "${BOLD}━━━ [5] 关键文件最近修改 ━━━${NC}"
+    echo "  /etc/passwd  : $(stat -c '%y' /etc/passwd 2>/dev/null | cut -d. -f1)"
+    echo "  /etc/shadow  : $(stat -c '%y' /etc/shadow 2>/dev/null | cut -d. -f1)"
+    echo "  /etc/sudoers : $(stat -c '%y' /etc/sudoers 2>/dev/null | cut -d. -f1)"
+    echo "  /etc/ssh/sshd_config : $(stat -c '%y' /etc/ssh/sshd_config 2>/dev/null | cut -d. -f1)"
+    echo ""
+    
+    # 6. 最近创建的用户
+    echo -e "${BOLD}━━━ [6] 最近创建的用户账户 ━━━${NC}"
+    echo "  最近修改的用户（检查/etc/passwd）："
+    find /etc/passwd -mtime -7 >/dev/null 2>&1 && echo "    ⚠️  /etc/passwd 在最近7天内被修改" || echo "    ✓ /etc/passwd 无近期修改"
+    
+    # 显示UID>=1000的普通用户
+    echo "  当前普通用户账户："
+    awk -F: '$3 >= 1000 && $3 < 65534 {print "    • " $1 " (UID:" $3 ")"}' /etc/passwd | head -5
+    echo ""
+    
+    # 7. 可疑进程检测
+    echo -e "${BOLD}━━━ [7] 可疑进程检测 ━━━${NC}"
+    
+    # 检查监听端口
+    suspicious_ports=$(netstat -tlnp 2>/dev/null | grep LISTEN | grep -v "127.0.0.1\|::1" | wc -l)
+    echo "  外部监听端口数: $suspicious_ports"
+    
+    # 检查是否有异常的root进程
+    root_procs=$(ps aux | grep "^root" | wc -l)
+    echo "  root运行的进程: $root_procs 个"
+    
+    # 检查可疑的网络连接
+    if command -v ss >/dev/null 2>&1; then
+        established=$(ss -tn state established 2>/dev/null | wc -l)
+        echo "  已建立的TCP连接: $((established - 1)) 个"
+    fi
+    echo ""
+    
+    # 8. 系统启动时间
+    echo -e "${BOLD}━━━ [8] 系统运行信息 ━━━${NC}"
+    echo "  系统启动时间: $(uptime -s 2>/dev/null || who -b | awk '{print $3, $4}')"
+    echo "  运行时长: $(uptime -p 2>/dev/null || uptime | awk -F'up ' '{print $2}' | awk -F',' '{print $1}')"
+    echo "  当前时间: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+    echo ""
+    
+    # 9. 安全提示
+    echo -e "${BOLD}${YELLOW}━━━ [9] 安全检查建议 ━━━${NC}"
+    echo -e "  ${GREEN}✓${NC} 检查上述信息是否有异常"
+    echo -e "  ${GREEN}✓${NC} 确认登录时间、IP地址是否为您本人"
+    echo -e "  ${GREEN}✓${NC} 注意失败登录尝试次数和来源"
+    echo -e "  ${GREEN}✓${NC} 检查是否有未知的用户账户"
+    echo -e "  ${GREEN}✓${NC} 关注关键文件的修改时间"
+    echo ""
+    
+    # 10. 渗透检测提示
+    echo -e "${RED}${BOLD}⚠️  可疑迹象（需要警惕）：${NC}"
+    echo -e "  • 大量失败登录尝试（暴力破解）"
+    echo -e "  • 陌生IP的成功登录"
+    echo -e "  • 未知的用户账户"
+    echo -e "  • 关键配置文件异常修改"
+    echo -e "  • 异常的监听端口"
+    echo -e "  • 非预期的系统重启"
+    echo ""
+    
+    echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    read -p "按Enter继续进入主菜单..."
+    clear
+}
+
 # 主循环
 main() {
     check_root
+    
+    # 显示安全信息（首次进入时）
+    show_security_info
     
     while true; do
         show_main_menu
@@ -2191,6 +3381,15 @@ main() {
             23)
                 option_privacy_enhancement
                 ;;
+            24)
+                option_diagnose_and_fix
+                ;;
+            25)
+                option_ramdisk_manager
+                ;;
+            26)
+                option_secure_delete
+                ;;
             0)
                 clear
                 echo ""
@@ -2208,5 +3407,4 @@ main() {
 
 # 运行主程序
 main
-
 
