@@ -10,7 +10,7 @@
 #   - 防溯源工具（内存文件系统、安全删除）
 #   - 故障诊断与修复
 #
-# 作者：基于编程随想的安全经验
+# 作者：bamuwe
 # 更新：2025-10-23
 # 许可：请遵守当地法律法规
 #
@@ -69,52 +69,68 @@ check_root() {
 # 显示主菜单
 show_main_menu() {
     clear
-    echo -e "${CYAN}╔══════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                                          ║${NC}"
-    echo -e "${CYAN}║      ${BOLD}Linux 2FA 管理系统${NC}${CYAN}              ║${NC}"
-    echo -e "${CYAN}║                                          ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║                                                            ║${NC}"
+    echo -e "${CYAN}║     ${BOLD}${MAGENTA}◆${NC} ${BOLD}Linux 2FA 安全管理系统 v2.5${NC} ${BOLD}${MAGENTA}◆${NC}${CYAN}              ║${NC}"
+    echo -e "${CYAN}║         ${NC}全方位安全 · 防溯源 · 匿名浏览${CYAN}                  ║${NC}"
+    echo -e "${CYAN}║                                                            ║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "${GREEN}[1]${NC} 配置2FA（SSH + TTY + GUI）"
-    echo -e "${GREEN}[2]${NC} 为单个用户配置2FA"
-    echo -e "${GREEN}[3]${NC} 为多个用户批量配置2FA"
-    echo -e "${YELLOW}[4]${NC} 强制2FA（移除nullok）"
-    echo -e "${CYAN}[5]${NC} 查看2FA状态"
-    echo -e "${CYAN}[6]${NC} 查看用户2FA配置"
-    echo -e "${CYAN}[7]${NC} 查看恢复码"
-    echo -e "${MAGENTA}[8]${NC} 禁用2FA（添加nullok）"
-    echo -e "${RED}[9]${NC} 完全移除2FA配置"
-    echo -e "${RED}[10]${NC} 回滚到备份配置"
-    echo -e "${BLUE}[11]${NC} 查看认证日志"
-    echo -e "${BLUE}[12]${NC} 测试2FA配置"
+    
+    echo -e "${CYAN}┌─ ${BOLD}2FA认证管理${NC}${CYAN} ────────────────────────────────────┐${NC}"
+    echo -e "  ${GREEN}[1]${NC}  完整配置2FA ${CYAN}→${NC} SSH + TTY + GUI 全覆盖"
+    echo -e "  ${GREEN}[2]${NC}  单用户配置  ${CYAN}→${NC} 为指定用户设置2FA"
+    echo -e "  ${GREEN}[3]${NC}  批量配置    ${CYAN}→${NC} 多用户快速部署"
+    echo -e "  ${YELLOW}[4]${NC}  强制2FA     ${CYAN}→${NC} 移除nullok，必须验证"
+    echo -e "  ${CYAN}[5]${NC}  查看状态    ${CYAN}→${NC} 2FA配置概览"
+    echo -e "  ${CYAN}[6]${NC}  用户配置    ${CYAN}→${NC} 查看特定用户"
+    echo -e "  ${CYAN}[7]${NC}  恢复码      ${CYAN}→${NC} 查看紧急恢复码"
+    echo -e "  ${MAGENTA}[8]${NC}  禁用强制    ${CYAN}→${NC} 添加nullok，可选验证"
+    echo -e "  ${RED}[9]${NC}  完全移除    ${CYAN}→${NC} 卸载2FA配置"
+    echo -e "  ${RED}[10]${NC} 回滚配置    ${CYAN}→${NC} 恢复到备份"
+    echo -e "  ${BLUE}[11]${NC} 认证日志    ${CYAN}→${NC} 查看登录记录"
+    echo -e "  ${BLUE}[12]${NC} 测试配置    ${CYAN}→${NC} 验证SSH配置"
+    echo -e "${CYAN}└────────────────────────────────────────────────────┘${NC}"
     echo ""
-    echo -e "${MAGENTA}═══ 时间同步功能 ═══${NC}"
-    echo -e "${GREEN}[13]${NC} 安装开机时间同步服务"
-    echo -e "${CYAN}[14]${NC} 查看时间同步状态"
-    echo -e "${CYAN}[15]${NC} 手动同步时间"
-    echo -e "${RED}[16]${NC} 卸载时间同步服务"
+    
+    echo -e "${CYAN}┌─ ${BOLD}时间同步${NC}${CYAN} ────────────────────────────────────────┐${NC}"
+    echo -e "  ${GREEN}[13]${NC} 安装时间同步 ${CYAN}→${NC} 开机自动同步NTP"
+    echo -e "  ${CYAN}[14]${NC} 查看状态     ${CYAN}→${NC} 时间同步服务状态"
+    echo -e "  ${CYAN}[15]${NC} 手动同步     ${CYAN}→${NC} 立即同步系统时间"
+    echo -e "  ${RED}[16]${NC} 卸载服务     ${CYAN}→${NC} 移除时间同步"
+    echo -e "${CYAN}└────────────────────────────────────────────────────┘${NC}"
     echo ""
-    echo -e "${MAGENTA}═══ 安全加固功能 ═══${NC}"
-    echo -e "${GREEN}[17]${NC} 设置GRUB密码保护"
-    echo -e "${GREEN}[18]${NC} 保护关键配置文件"
-    echo -e "${CYAN}[19]${NC} 查看安全状态"
-    echo -e "${YELLOW}[20]${NC} 一键完整加固"
-    echo -e "${RED}[21]${NC} 移除文件保护"
-    echo -e "${GREEN}[22]${NC} SSH安全加固（密钥+2FA）"
-    echo -e "${GREEN}[23]${NC} 隐私保护增强"
+    
+    echo -e "${CYAN}┌─ ${BOLD}安全加固${NC}${CYAN} ────────────────────────────────────────┐${NC}"
+    echo -e "  ${GREEN}[17]${NC} GRUB密码     ${CYAN}→${NC} 防止启动参数篡改"
+    echo -e "  ${GREEN}[18]${NC} 文件保护     ${CYAN}→${NC} 配置文件不可变"
+    echo -e "  ${CYAN}[19]${NC} 安全状态     ${CYAN}→${NC} 系统安全概览"
+    echo -e "  ${YELLOW}[20]${NC} 一键加固     ${CYAN}→${NC} 完整安全加固"
+    echo -e "  ${RED}[21]${NC} 移除保护     ${CYAN}→${NC} 解除文件锁定"
+    echo -e "  ${GREEN}[22]${NC} SSH加固      ${CYAN}→${NC} 密钥+2FA双重认证"
+    echo -e "  ${GREEN}[23]${NC} 隐私增强     ${CYAN}→${NC} MAC/IPv6/DNS/Swap(9步)"
+    echo -e "${CYAN}└────────────────────────────────────────────────────┘${NC}"
     echo ""
-    echo -e "${MAGENTA}═══ 故障诊断 ═══${NC}"
-    echo -e "${BLUE}[24]${NC} 诊断并修复2FA问题"
+    
+    echo -e "${CYAN}┌─ ${BOLD}${BLUE}故障诊断${NC}${CYAN} ────────────────────────────────────────┐${NC}"
+    echo -e "  ${BLUE}[24]${NC} 诊断修复     ${CYAN}→${NC} 自动检测并修复2FA问题"
+    echo -e "${CYAN}└────────────────────────────────────────────────────┘${NC}"
     echo ""
-    echo -e "${MAGENTA}═══ 防溯源功能 ═══${NC}"
-    echo -e "${GREEN}[25]${NC} 内存文件系统管理"
-    echo -e "${GREEN}[26]${NC} 安全删除文件"
-    echo -e "${GREEN}[27]${NC} 元数据清理工具"
-    echo -e "${GREEN}[28]${NC} 隐私浏览器启动器"
+    
+    echo -e "${CYAN}┌─ ${BOLD}${MAGENTA}防溯源工具${NC}${CYAN} ─────────────────────────────────────┐${NC}"
+    echo -e "  ${GREEN}[25]${NC} 内存盘管理   ${CYAN}→${NC} RAM工作区，重启清空"
+    echo -e "  ${GREEN}[26]${NC} 安全删除     ${CYAN}→${NC} 多次覆盖，防恢复"
+    echo -e "  ${GREEN}[27]${NC} 元数据清理   ${CYAN}→${NC} GPS/作者/时间清除"
+    echo -e "  ${GREEN}[28]${NC} 隐私浏览器   ${CYAN}→${NC} 沙箱+Tor+自动清理"
+    echo -e "  ${GREEN}[29]${NC} 全局Tor      ${CYAN}→${NC} 系统级匿名网络"
+    echo -e "${CYAN}└────────────────────────────────────────────────────┘${NC}"
     echo ""
-    echo -e "${YELLOW}[0]${NC} 退出"
+    
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "  ${YELLOW}[0]${NC} 退出系统"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -n "请选择操作 [0-28]: "
+    echo -n "请选择操作 [0-29]: "
 }
 
 #==============================================================================
@@ -3929,7 +3945,8 @@ option_privacy_browser() {
             echo "  [1] 标准沙箱（有网络）"
             echo "  [2] 私有沙箱（无网络，离线查看）"
             echo "  [3] 私有+网络（推荐，默认）"
-            read -p "选择 [1-3，默认3]: " jail_mode
+            echo "  [4] 私有+Tor（最高匿名）"
+            read -p "选择 [1-4，默认3]: " jail_mode
             jail_mode=${jail_mode:-3}
             
             # 检测当前用户和环境
@@ -3953,12 +3970,59 @@ option_privacy_browser() {
             case $jail_mode in
                 1)
                     jail_cmd="firejail $firefox_cmd"
+                    mode_name="标准沙箱"
                     ;;
                 2)
                     jail_cmd="firejail --private --net=none $firefox_cmd"
+                    mode_name="私有沙箱（无网络）"
                     ;;
-                3|*)
+                3)
                     jail_cmd="firejail --private $firefox_cmd"
+                    mode_name="私有沙箱+网络"
+                    ;;
+                4)
+                    # 私有+Tor（最高匿名）
+                    # 检查Tor和proxychains
+                    if ! systemctl is-active --quiet tor 2>/dev/null; then
+                        log_error "Tor服务未运行"
+                        echo ""
+                        log_step "请先配置Tor："
+                        echo "  1. 返回主菜单"
+                        echo "  2. 选择 [29] → [1] 安装Tor"
+                        echo "  3. 再启动此选项"
+                        read -p "按Enter返回..."
+                        return
+                    fi
+                    
+                    if ! command -v proxychains4 >/dev/null 2>&1; then
+                        log_error "proxychains4未安装"
+                        echo ""
+                        log_step "请先配置proxychains："
+                        echo "  1. 返回主菜单"
+                        echo "  2. 选择 [29] → [3] 配置proxychains"
+                        echo "  3. 再启动此选项"
+                        read -p "按Enter返回..."
+                        return
+                    fi
+                    
+                    jail_cmd="proxychains4 firejail --private $firefox_cmd"
+                    mode_name="私有沙箱+Tor（最高匿名）"
+                    
+                    # 显示多层路由信息
+                    echo ""
+                    log_info "多层路由架构："
+                    echo "  Firefox → Firejail沙箱 → Tor → Clash(如有) → Tor网络"
+                    echo ""
+                    echo "保护层级："
+                    echo "  • 沙箱隔离：防止文件泄露"
+                    echo "  • Tor匿名：隐藏IP地址"
+                    echo "  • Clash加密：隐藏Tor流量（如已启用）"
+                    echo "  • 自动清理：退出零痕迹"
+                    echo ""
+                    ;;
+                *)
+                    jail_cmd="firejail --private $firefox_cmd"
+                    mode_name="私有沙箱+网络"
                     ;;
             esac
             
@@ -3985,8 +4049,19 @@ option_privacy_browser() {
             if pgrep -u $actual_user firefox >/dev/null 2>&1; then
                 log_info "✓ Firefox沙箱已启动"
                 echo ""
-                echo "  启动方式: $jail_cmd"
+                echo "  模式: $mode_name"
+                echo "  启动命令: $jail_cmd"
                 echo "  运行用户: $actual_user"
+                
+                # 显示数据存储位置
+                if [[ $jail_cmd == *"--private"* ]]; then
+                    echo "  数据位置: /tmp/firejail.*/.mozilla/"
+                    echo "  存储类型: 临时（自动清理）"
+                else
+                    echo "  数据位置: ~/.mozilla/firefox/"
+                    echo "  存储类型: 永久（需手动清理）"
+                fi
+                
                 echo "  日志文件: /tmp/firefox-$$.log"
                 echo ""
                 log_warn "Firefox已在后台运行"
@@ -4010,10 +4085,21 @@ option_privacy_browser() {
                     rm -rf /tmp/firejail.* 2>/dev/null
                     rm -rf /tmp/.firejail-* 2>/dev/null
                     log_info "✓ Firejail临时数据已清理"
+                    
+                    # 显示清理详情
+                    if [[ $jail_cmd == *"proxychains"* ]]; then
+                        echo ""
+                        log_info "已清理内容（Tor模式）："
+                        echo "  ✓ 沙箱临时目录（/tmp/firejail.*）"
+                        echo "  ✓ Firefox配置和缓存"
+                        echo "  ✓ Cookies和历史记录"
+                        echo "  ✓ localStorage和会话"
+                        echo "  ✓ Tor电路信息"
+                    fi
                 else
                     log_warn "⚠️  标准沙箱模式数据未清理"
                     echo "  数据保存在: ~/.mozilla/firefox/"
-                    log_step "建议使用私有模式（选项3）以获得自动清理"
+                    log_step "建议使用私有模式（选项3或4）以获得自动清理"
                 fi
             else
                 log_error "Firefox启动可能失败"
@@ -4227,6 +4313,488 @@ EOF
                 else
                     log_error "安装失败"
                 fi
+            fi
+            ;;
+            
+        0)
+            return
+            ;;
+            
+        *)
+            log_error "无效选项"
+            ;;
+    esac
+    
+    echo ""
+    read -p "按Enter返回主菜单..."
+}
+
+# 选项29: 全局Tor网络配置
+option_global_tor() {
+    clear
+    log_title "══════════════════════════════════════════"
+    log_title "  全局Tor网络配置"
+    log_title "══════════════════════════════════════════"
+    echo ""
+    
+    log_step "全局Tor可以实现："
+    echo "  • 所有网络流量通过Tor"
+    echo "  • IP地址完全匿名"
+    echo "  • 防止流量分析"
+    echo "  • 绕过网络审查"
+    echo ""
+    
+    # 检查Tor状态
+    echo -e "${BOLD}当前系统状态:${NC}"
+    if systemctl is-active --quiet tor 2>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} Tor服务运行中"
+        tor_status="running"
+    else
+        echo -e "  ${RED}✗${NC} Tor服务未运行"
+        tor_status="stopped"
+    fi
+    
+    # 检查proxychains
+    if command -v proxychains4 >/dev/null 2>&1; then
+        echo -e "  ${GREEN}✓${NC} proxychains4已安装"
+        has_proxychains=true
+    else
+        echo -e "  ${YELLOW}!${NC} proxychains4未安装"
+        has_proxychains=false
+    fi
+    
+    # 检测Clash TUN模式
+    clash_detected=false
+    if ip link show | grep -q "utun\|Meta\|clash"; then
+        echo -e "  ${YELLOW}!${NC} 检测到虚拟网卡（可能是Clash TUN）"
+        clash_detected=true
+    fi
+    
+    if pgrep -f "clash\|verge" >/dev/null 2>&1; then
+        echo -e "  ${YELLOW}!${NC} 检测到Clash进程运行中"
+        clash_detected=true
+    fi
+    
+    # 检查全局Tor透明代理
+    if iptables -t nat -L OUTPUT 2>/dev/null | grep -q "9040"; then
+        echo -e "  ${GREEN}✓${NC} 全局Tor透明代理已启用"
+        global_tor_enabled=true
+    else
+        echo -e "  ${CYAN}○${NC} 全局Tor透明代理未启用"
+        global_tor_enabled=false
+    fi
+    
+    echo ""
+    
+    # 如果检测到Clash，显示优化建议
+    if [ "$clash_detected" = true ]; then
+        log_warn "━━━ Clash兼容性建议 ━━━"
+        echo ""
+        echo -e "${YELLOW}检测到Clash可能正在运行（TUN模式）${NC}"
+        echo ""
+        echo -e "${BOLD}推荐配置（多层路由）：${NC}"
+        echo "  ✓ Clash TUN: 保持启用"
+        echo "  ✓ Tor SOCKS5: 使用proxychains"
+        echo "  ✗ 全局Tor透明代理: 不要启用（会冲突）"
+        echo ""
+        echo -e "${BOLD}流量路径：${NC}"
+        echo "  应用 → proxychains → Tor SOCKS5 → Clash TUN → 代理节点 → Tor网络"
+        echo "  └──────────┬────────┘  └────┬───┘  └────┬───┘  └───┬──┘"
+        echo "          Tor加密       Clash加密    代理出口    Tor匿名"
+        echo ""
+        log_step "建议操作："
+        echo "  1. 选择 [3] 配置proxychains"
+        echo "  2. 使用: proxychains4 firefox"
+        echo "  3. 不要选择 [4] 全局Tor（会与Clash冲突）"
+        echo ""
+    fi
+    
+    # 子菜单
+    echo "请选择操作："
+    echo "  [1] 安装并启动Tor服务"
+    echo "  [2] 配置透明代理（全局Tor）"
+    echo "  [3] 配置proxychains（应用级Tor）"
+    echo "  [4] 启用全局Tor"
+    echo "  [5] 禁用全局Tor"
+    echo "  [6] 测试Tor连接"
+    echo "  [7] 查看Tor状态"
+    echo "  [0] 返回主菜单"
+    echo ""
+    read -p "请选择 [0-7]: " tor_choice
+    
+    case $tor_choice in
+        1)
+            # 安装并启动Tor
+            echo ""
+            log_step "安装Tor服务..."
+            
+            if command -v tor >/dev/null 2>&1; then
+                log_warn "Tor已安装"
+                tor --version | head -1
+            else
+                apt update
+                apt install -y tor
+                
+                if [ $? -eq 0 ]; then
+                    log_info "Tor安装成功"
+                else
+                    log_error "Tor安装失败"
+                    read -p "按Enter返回..."
+                    return
+                fi
+            fi
+            
+            # 启动Tor
+            echo ""
+            log_step "启动Tor服务..."
+            systemctl start tor
+            systemctl enable tor
+            
+            sleep 2
+            
+            if systemctl is-active --quiet tor; then
+                log_info "✓ Tor服务已启动"
+                echo ""
+                echo "Tor SOCKS5代理: 127.0.0.1:9050"
+                echo "Tor DNS端口: 127.0.0.1:53 (需配置)"
+            else
+                log_error "Tor启动失败"
+                systemctl status tor --no-pager
+            fi
+            ;;
+            
+        2)
+            # 配置透明代理
+            echo ""
+            log_step "配置Tor透明代理..."
+            
+            if [ "$tor_status" != "running" ]; then
+                log_error "Tor服务未运行，请先选择[1]安装并启动"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            log_warn "⚠️  警告：透明代理会将所有流量重定向到Tor"
+            echo "  • 网速会变慢"
+            echo "  • 某些应用可能不兼容"
+            echo "  • 建议先测试"
+            echo ""
+            read -p "是否继续？(y/n): " confirm_transparent
+            
+            if [[ ! $confirm_transparent =~ ^[Yy]$ ]]; then
+                log_info "已取消"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 配置Tor透明代理
+            log_step "配置Tor..."
+            
+            # 备份torrc
+            cp /etc/tor/torrc /etc/tor/torrc.backup
+            
+            # 添加透明代理配置
+            cat >> /etc/tor/torrc << 'EOF'
+
+# 透明代理配置
+TransPort 127.0.0.1:9040
+DNSPort 127.0.0.1:5353
+EOF
+            
+            systemctl restart tor
+            sleep 2
+            
+            if systemctl is-active --quiet tor; then
+                log_info "Tor透明代理配置完成"
+                echo ""
+                log_step "配置信息："
+                echo "  TransPort: 127.0.0.1:9040"
+                echo "  DNSPort: 127.0.0.1:5353"
+                echo ""
+                log_warn "下一步："
+                echo "  1. 配置iptables规则（选项[4]启用全局Tor）"
+                echo "  2. 或使用proxychains（选项[3]）"
+            else
+                log_error "Tor重启失败"
+            fi
+            ;;
+            
+        3)
+            # 配置proxychains
+            echo ""
+            log_step "配置proxychains..."
+            
+            # 安装proxychains
+            if [ "$has_proxychains" = false ]; then
+                log_step "安装proxychains4..."
+                apt update
+                apt install -y proxychains4
+            fi
+            
+            # 配置proxychains
+            log_step "配置proxychains..."
+            
+            cp /etc/proxychains4.conf /etc/proxychains4.conf.backup
+            
+            # 修改配置
+            cat > /etc/proxychains4.conf << 'EOF'
+# proxychains配置 - Tor代理
+strict_chain
+proxy_dns
+remote_dns_subnet 224
+tcp_read_time_out 15000
+tcp_connect_time_out 8000
+
+[ProxyList]
+socks5 127.0.0.1 9050
+EOF
+            
+            log_info "proxychains已配置"
+            echo ""
+            log_step "使用方法："
+            echo "  proxychains4 curl https://check.torproject.org"
+            echo "  proxychains4 firefox"
+            echo "  proxychains4 wget https://example.com"
+            echo ""
+            log_step "设置别名（可选）："
+            echo "  alias pc='proxychains4'"
+            echo "  使用: pc curl https://example.com"
+            ;;
+            
+        4)
+            # 启用全局Tor
+            echo ""
+            log_step "启用全局Tor（透明代理）..."
+            
+            if [ "$tor_status" != "running" ]; then
+                log_error "Tor服务未运行，请先选择[1]安装Tor"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # Clash冲突检测
+            if [ "$clash_detected" = true ]; then
+                echo ""
+                log_error "⚠️⚠️⚠️  检测到Clash可能正在运行  ⚠️⚠️⚠️"
+                echo ""
+                echo -e "${RED}${BOLD}路由冲突风险：${NC}"
+                echo "  • Clash TUN（全局代理）"
+                echo "  • + Tor透明代理（全局代理）"
+                echo "  • = 可能导致路由冲突或死循环"
+                echo ""
+                echo -e "${GREEN}${BOLD}推荐方案（多层路由）：${NC}"
+                echo "  1. 保持Clash TUN启用"
+                echo "  2. 不启用Tor透明代理"
+                echo "  3. 使用proxychains方式："
+                echo "     proxychains4 firefox"
+                echo "     proxychains4 curl https://example.com"
+                echo ""
+                echo -e "${BOLD}流量路径（推荐）：${NC}"
+                echo "  应用 → proxychains → Tor → Clash → 代理节点 → Tor网络"
+                echo ""
+                log_step "如果仍要启用全局Tor透明代理："
+                echo "  1. 先关闭Clash TUN模式"
+                echo "  2. 再启用全局Tor"
+                echo "  3. 或接受风险继续"
+                echo ""
+                read -p "是否仍要启用全局Tor透明代理？(yes/no): " force_global
+                
+                if [ "$force_global" != "yes" ]; then
+                    log_info "已取消，建议使用proxychains方式"
+                    echo ""
+                    log_step "快速配置proxychains："
+                    echo "  返回菜单 → 选择 [3]"
+                    read -p "按Enter返回..."
+                    return
+                fi
+                
+                log_warn "强制启用，请注意路由冲突风险"
+            fi
+            
+            echo ""
+            log_warn "⚠️  警告：这将重定向所有TCP流量到Tor"
+            echo "  • 所有应用的流量都通过Tor"
+            echo "  • 网速会明显变慢"
+            echo "  • 某些应用可能无法使用"
+            echo "  • 可以随时禁用（选项[5]）"
+            echo ""
+            read -p "确认启用全局Tor？(y/n): " confirm_global
+            
+            if [[ ! $confirm_global =~ ^[Yy]$ ]]; then
+                log_info "已取消"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 配置iptables规则
+            log_step "配置iptables规则..."
+            
+            # 保存当前规则
+            iptables-save > /root/iptables-before-tor.rules
+            
+            # 创建Tor透明代理规则脚本
+            cat > /usr/local/bin/tor-transparent-proxy.sh << 'EOF'
+#!/bin/bash
+# Tor透明代理规则
+
+# Tor用户UID
+TOR_UID=$(id -u debian-tor)
+
+# 清除现有规则
+iptables -F
+iptables -t nat -F
+
+# 允许本地流量
+iptables -t nat -A OUTPUT -m owner --uid-owner $TOR_UID -j RETURN
+iptables -t nat -A OUTPUT -o lo -j RETURN
+
+# 不代理本地网络
+iptables -t nat -A OUTPUT -d 192.168.0.0/16 -j RETURN
+iptables -t nat -A OUTPUT -d 172.16.0.0/12 -j RETURN
+iptables -t nat -A OUTPUT -d 10.0.0.0/8 -j RETURN
+
+# DNS通过Tor
+iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 5353
+iptables -t nat -A OUTPUT -p tcp --dport 53 -j REDIRECT --to-ports 5353
+
+# 所有TCP流量通过Tor
+iptables -t nat -A OUTPUT -p tcp --syn -j REDIRECT --to-ports 9040
+
+echo "✓ Tor透明代理已启用"
+EOF
+            
+            chmod +x /usr/local/bin/tor-transparent-proxy.sh
+            
+            # 执行规则
+            /usr/local/bin/tor-transparent-proxy.sh
+            
+            if [ $? -eq 0 ]; then
+                log_info "✓ 全局Tor已启用"
+                echo ""
+                log_step "验证连接："
+                echo "  curl https://check.torproject.org | grep Congratulations"
+                echo ""
+                log_warn "注意："
+                echo "  • 所有流量现在通过Tor"
+                echo "  • 禁用: 选择[5]或重启系统"
+                echo "  • 备份: /root/iptables-before-tor.rules"
+            else
+                log_error "配置失败"
+            fi
+            ;;
+            
+        5)
+            # 禁用全局Tor
+            echo ""
+            log_step "禁用全局Tor..."
+            
+            # 恢复iptables规则
+            if [ -f /root/iptables-before-tor.rules ]; then
+                iptables-restore < /root/iptables-before-tor.rules
+                log_info "✓ iptables规则已恢复"
+            else
+                # 清空所有规则
+                iptables -F
+                iptables -t nat -F
+                iptables -P INPUT ACCEPT
+                iptables -P FORWARD ACCEPT
+                iptables -P OUTPUT ACCEPT
+                log_info "✓ iptables规则已清空"
+            fi
+            
+            log_info "全局Tor已禁用"
+            echo ""
+            log_step "当前网络："
+            echo "  • 流量直接连接（不通过Tor）"
+            echo "  • Tor服务仍在运行（可用proxychains）"
+            ;;
+            
+        6)
+            # 测试Tor连接
+            echo ""
+            log_step "测试Tor连接..."
+            
+            if [ "$tor_status" != "running" ]; then
+                log_error "Tor服务未运行"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            echo "测试1: Tor SOCKS5代理"
+            if curl -s --socks5 127.0.0.1:9050 https://check.torproject.org | grep -q "Congratulations"; then
+                log_info "✓ Tor代理工作正常"
+            else
+                log_error "✗ Tor代理连接失败"
+            fi
+            
+            echo ""
+            echo "测试2: 获取Tor出口IP"
+            tor_ip=$(curl -s --socks5 127.0.0.1:9050 https://ifconfig.me 2>/dev/null)
+            if [ -n "$tor_ip" ]; then
+                log_info "✓ Tor出口IP: $tor_ip"
+            else
+                log_error "✗ 无法获取Tor IP"
+            fi
+            
+            echo ""
+            echo "测试3: 检查透明代理"
+            if iptables -t nat -L OUTPUT | grep -q "9040\|5353"; then
+                log_info "✓ 透明代理规则已配置"
+                
+                # 测试透明代理
+                direct_ip=$(curl -s https://ifconfig.me 2>/dev/null)
+                if [ -n "$direct_ip" ]; then
+                    if [ "$direct_ip" = "$tor_ip" ]; then
+                        log_info "✓ 全局Tor已生效（IP相同）"
+                    else
+                        log_warn "⚠ 当前IP与Tor IP不同"
+                        echo "  当前IP: $direct_ip"
+                        echo "  Tor IP: $tor_ip"
+                    fi
+                fi
+            else
+                log_warn "透明代理规则未配置"
+            fi
+            ;;
+            
+        7)
+            # 查看Tor状态
+            echo ""
+            log_step "Tor服务状态..."
+            echo ""
+            
+            if systemctl is-active --quiet tor; then
+                log_info "✓ Tor服务运行中"
+                echo ""
+                systemctl status tor --no-pager | head -15
+                echo ""
+                
+                # Tor版本
+                echo "Tor版本:"
+                tor --version | head -1
+                echo ""
+                
+                # Tor电路信息
+                echo "Tor配置:"
+                echo "  SOCKS5: 127.0.0.1:9050"
+                if grep -q "^TransPort" /etc/tor/torrc 2>/dev/null; then
+                    echo "  TransPort: 127.0.0.1:9040 (透明代理)"
+                fi
+                if grep -q "^DNSPort" /etc/tor/torrc 2>/dev/null; then
+                    echo "  DNSPort: 127.0.0.1:5353 (DNS)"
+                fi
+                echo ""
+                
+                # 检查透明代理状态
+                if iptables -t nat -L OUTPUT 2>/dev/null | grep -q "9040"; then
+                    log_info "全局Tor: ✓ 已启用"
+                else
+                    log_warn "全局Tor: ✗ 未启用（仅SOCKS5可用）"
+                fi
+            else
+                log_error "Tor服务未运行"
+                log_step "启动Tor: systemctl start tor"
             fi
             ;;
             
@@ -4479,6 +5047,9 @@ main() {
                 ;;
             28)
                 option_privacy_browser
+                ;;
+            29)
+                option_global_tor
                 ;;
             0)
                 clear
