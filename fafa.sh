@@ -123,6 +123,7 @@ show_main_menu() {
     echo -e "  ${GREEN}[27]${NC} 元数据清理   ${CYAN}→${NC} GPS/作者/时间清除"
     echo -e "  ${GREEN}[28]${NC} 隐私浏览器   ${CYAN}→${NC} 沙箱+Tor+自动清理"
     echo -e "  ${GREEN}[29]${NC} 全局Tor      ${CYAN}→${NC} 系统级匿名网络"
+    echo -e "  ${GREEN}[30]${NC} 加密容器     ${CYAN}→${NC} LUKS加密磁盘管理"
     echo -e "${CYAN}└────────────────────────────────────────────────────┘${NC}"
     echo ""
     
@@ -130,7 +131,7 @@ show_main_menu() {
     echo -e "  ${YELLOW}[0]${NC} 退出系统"
     echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    echo -n "请选择操作 [0-29]: "
+    echo -n "请选择操作 [0-30]: "
 }
 
 #==============================================================================
@@ -4811,6 +4812,643 @@ EOF
     read -p "按Enter返回主菜单..."
 }
 
+# 选项30: 加密容器管理
+option_encrypted_container() {
+    clear
+    log_title "══════════════════════════════════════════"
+    log_title "  LUKS加密容器管理"
+    log_title "══════════════════════════════════════════"
+    echo ""
+    
+    log_step "加密容器用途："
+    echo "  • 存储敏感文件（加密保护）"
+    echo "  • 不用时卸载（隐藏数据）"
+    echo "  • 密码保护（AES-256加密）"
+    echo "  • 可移动（复制到U盘）"
+    echo ""
+    
+    # 检查cryptsetup
+    if ! command -v cryptsetup >/dev/null 2>&1; then
+        log_warn "cryptsetup未安装"
+        read -p "是否安装？(y/n): " install_crypt
+        if [[ $install_crypt =~ ^[Yy]$ ]]; then
+            apt update
+            apt install -y cryptsetup
+        else
+            read -p "按Enter返回..."
+            return
+        fi
+    fi
+    
+    # 显示现有容器
+    echo -e "${BOLD}现有加密容器:${NC}"
+    if [ -d /root/encrypted-containers ]; then
+        ls -lh /root/encrypted-containers/*.img 2>/dev/null | awk '{print "  " $9 " (" $5 ")"}'
+    else
+        echo "  （无）"
+    fi
+    echo ""
+    
+    # 显示已挂载的容器
+    echo -e "${BOLD}已挂载的容器:${NC}"
+    mount | grep mapper | grep -v swap | awk '{print "  " $1 " → " $3}' || echo "  （无）"
+    echo ""
+    
+    # 子菜单
+    echo "请选择操作："
+    echo "  [1] 创建新的加密容器"
+    echo "  [2] 打开/挂载加密容器"
+    echo "  [3] 关闭/卸载加密容器"
+    echo "  [4] 查看容器状态"
+    echo "  [5] 修改容器密码"
+    echo "  [6] 删除加密容器"
+    echo "  [0] 返回主菜单"
+    echo ""
+    read -p "请选择 [0-6]: " container_choice
+    
+    case $container_choice in
+        1)
+            # 创建加密容器
+            echo ""
+            log_step "创建LUKS加密容器..."
+            
+            read -p "容器名称（如 secure-data）: " container_name
+            if [ -z "$container_name" ]; then
+                log_error "名称不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 验证名称（避免特殊词）
+            if [[ "$container_name" =~ ^(yes|no|y|n|YES|NO)$ ]]; then
+                log_warn "⚠️  容器名称不能是: yes, no, y, n"
+                log_step "请使用其他名称，如: secure-data, private, vault等"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            read -p "容器大小（如 1G, 500M, 2G）: " container_size
+            if [ -z "$container_size" ]; then
+                log_error "大小不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 创建容器目录
+            mkdir -p /root/encrypted-containers
+            container_file="/root/encrypted-containers/${container_name}.img"
+            
+            if [ -f "$container_file" ]; then
+                log_error "容器已存在: $container_file"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "创建容器文件..."
+            
+            # 创建空文件
+            dd if=/dev/zero of="$container_file" bs=1M count=$(echo $container_size | sed 's/[^0-9]//g') status=progress
+            
+            if [ $? -ne 0 ]; then
+                log_error "创建文件失败"
+                rm -f "$container_file"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "配置LUKS加密..."
+            log_warn "请设置加密密码（至少8位，建议20位以上）"
+            echo ""
+            echo "即将格式化容器并设置加密"
+            echo "  容器: $container_file"
+            echo "  加密: AES-256-XTS"
+            echo ""
+            read -p "确认创建加密容器？(y/n): " confirm_create
+            
+            if [[ ! $confirm_create =~ ^[Yy]$ ]]; then
+                log_info "已取消"
+                rm -f "$container_file"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 格式化为LUKS
+            echo ""
+            log_step "正在格式化LUKS容器..."
+            echo ""
+            log_warn "即将配置LUKS加密，请按照提示操作："
+            echo ""
+            echo "步骤1: 确认格式化"
+            echo "  提示: Are you sure? (Type 'yes' in capital letters)"
+            echo "  输入: YES  ← 必须大写"
+            echo ""
+            echo "步骤2: 设置加密密码"
+            echo "  Enter passphrase: （输入密码，至少8位）"
+            echo "  Verify passphrase: （再次输入密码）"
+            echo ""
+            log_warn "密码非常重要："
+            echo "  • 密码丢失 = 数据永久丢失"
+            echo "  • 建议使用20位以上强密码"
+            echo "  • 记录并安全保存密码"
+            echo ""
+            read -p "按Enter开始（或Ctrl+C取消）..."
+            
+            # 直接调用cryptsetup，让用户交互输入
+            cryptsetup luksFormat "$container_file"
+            
+            if [ $? -ne 0 ]; then
+                log_error "加密配置失败（可能取消操作或密码太弱）"
+                rm -f "$container_file"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "打开加密容器..."
+            cryptsetup open "$container_file" "${container_name}"
+            
+            if [ $? -ne 0 ]; then
+                log_error "打开容器失败"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "创建文件系统..."
+            mkfs.ext4 -L "${container_name}" "/dev/mapper/${container_name}"
+            
+            echo ""
+            log_step "挂载容器..."
+            mkdir -p "/mnt/${container_name}"
+            mount "/dev/mapper/${container_name}" "/mnt/${container_name}"
+            
+            if [ $? -eq 0 ]; then
+                log_info "✓ 加密容器创建成功！"
+                echo ""
+                echo "容器信息："
+                echo "  名称: $container_name"
+                echo "  文件: $container_file"
+                echo "  大小: $container_size"
+                echo "  挂载点: /mnt/${container_name}"
+                echo "  加密: AES-256 (LUKS)"
+                echo ""
+                log_step "使用方法："
+                echo "  cd /mnt/${container_name}"
+                echo "  # 在此存储敏感文件"
+                echo ""
+                log_warn "使用完毕后："
+                echo "  选择 [3] 卸载容器"
+                echo "  容器文件保存在: $container_file"
+            else
+                log_error "挂载失败"
+                cryptsetup close "${container_name}"
+            fi
+            ;;
+            
+        2)
+            # 打开/挂载容器
+            echo ""
+            log_step "打开加密容器..."
+            
+            # 列出可用容器
+            if [ ! -d /root/encrypted-containers ]; then
+                log_error "没有找到容器目录"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 显示编号列表
+            echo "可用的加密容器："
+            containers=($(ls /root/encrypted-containers/*.img 2>/dev/null))
+            
+            if [ ${#containers[@]} -eq 0 ]; then
+                log_error "没有找到容器"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            for i in "${!containers[@]}"; do
+                name=$(basename "${containers[$i]}" .img)
+                size=$(du -h "${containers[$i]}" | cut -f1)
+                echo "  [$((i+1))] $name (${size})"
+            done
+            echo ""
+            
+            read -p "选择容器（编号或名称）: " container_input
+            
+            if [ -z "$container_input" ]; then
+                log_error "输入不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 处理输入（支持编号、名称或完整路径）
+            if [[ "$container_input" =~ ^[0-9]+$ ]]; then
+                # 输入的是编号
+                idx=$((container_input - 1))
+                if [ $idx -ge 0 ] && [ $idx -lt ${#containers[@]} ]; then
+                    container_file="${containers[$idx]}"
+                    container_name=$(basename "$container_file" .img)
+                    log_info "已选择: $container_name"
+                else
+                    log_error "无效的编号"
+                    read -p "按Enter返回..."
+                    return
+                fi
+            elif [ -f "$container_input" ]; then
+                # 完整路径
+                container_file="$container_input"
+                container_name=$(basename "$container_file" .img)
+            elif [ -f "/root/encrypted-containers/${container_input}.img" ]; then
+                # 容器名称
+                container_file="/root/encrypted-containers/${container_input}.img"
+                container_name="$container_input"
+            else
+                log_error "容器不存在"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "打开LUKS容器: $container_name"
+            echo "请输入密码："
+            
+            cryptsetup open "$container_file" "${container_name}"
+            
+            if [ $? -ne 0 ]; then
+                log_error "打开容器失败（密码错误或容器损坏）"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "挂载容器..."
+            mkdir -p "/mnt/${container_name}"
+            mount "/dev/mapper/${container_name}" "/mnt/${container_name}"
+            
+            if [ $? -eq 0 ]; then
+                log_info "✓ 容器已挂载"
+                echo ""
+                echo "挂载点: /mnt/${container_name}"
+                echo "可用空间:"
+                df -h "/mnt/${container_name}"
+                echo ""
+                log_step "现在可以访问加密数据："
+                echo "  cd /mnt/${container_name}"
+                echo ""
+                log_warn "使用完毕后记得卸载（选项[3]）"
+            else
+                log_error "挂载失败"
+                cryptsetup close "${container_name}"
+            fi
+            ;;
+            
+        3)
+            # 关闭/卸载容器
+            echo ""
+            log_step "卸载加密容器..."
+            
+            # 获取已挂载的容器列表
+            mounted_containers=()
+            while IFS= read -r line; do
+                mapper_name=$(echo "$line" | awk '{print $1}' | sed 's/\/dev\/mapper\///')
+                mount_point=$(echo "$line" | awk '{print $3}')
+                mounted_containers+=("$mapper_name:$mount_point")
+            done < <(mount | grep "/dev/mapper/" | grep -v swap)
+            
+            if [ ${#mounted_containers[@]} -eq 0 ]; then
+                log_error "没有已挂载的容器"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 显示编号列表
+            echo "已挂载的容器："
+            for i in "${!mounted_containers[@]}"; do
+                mapper_name=$(echo "${mounted_containers[$i]}" | cut -d: -f1)
+                mount_point=$(echo "${mounted_containers[$i]}" | cut -d: -f2)
+                echo "  [$((i+1))] $mapper_name → $mount_point"
+            done
+            echo ""
+            
+            read -p "选择容器（编号或名称）: " container_input
+            
+            if [ -z "$container_input" ]; then
+                log_error "输入不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 处理输入（支持编号或名称）
+            if [[ "$container_input" =~ ^[0-9]+$ ]]; then
+                # 输入的是编号
+                idx=$((container_input - 1))
+                if [ $idx -ge 0 ] && [ $idx -lt ${#mounted_containers[@]} ]; then
+                    container_name=$(echo "${mounted_containers[$idx]}" | cut -d: -f1)
+                    log_info "已选择: $container_name"
+                else
+                    log_error "无效的编号"
+                    read -p "按Enter返回..."
+                    return
+                fi
+            else
+                # 输入的是名称
+                container_name="$container_input"
+            fi
+            
+            if [ -z "$container_name" ]; then
+                log_error "名称不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 检查是否挂载
+            if ! mount | grep -q "/dev/mapper/${container_name}"; then
+                log_error "容器未挂载: $container_name"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "卸载文件系统..."
+            umount "/mnt/${container_name}"
+            
+            if [ $? -ne 0 ]; then
+                log_error "卸载失败（可能有程序正在使用）"
+                echo ""
+                log_step "检查占用进程："
+                lsof "/mnt/${container_name}" 2>/dev/null
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "关闭LUKS容器..."
+            cryptsetup close "${container_name}"
+            
+            if [ $? -eq 0 ]; then
+                log_info "✓ 容器已安全关闭"
+                echo ""
+                echo "容器名称: $container_name"
+                echo "状态: 已卸载（数据已加密保护）"
+                echo ""
+                log_step "容器文件保存在:"
+                echo "  /root/encrypted-containers/${container_name}.img"
+            else
+                log_error "关闭容器失败"
+            fi
+            ;;
+            
+        4)
+            # 查看容器状态
+            echo ""
+            log_step "加密容器状态..."
+            echo ""
+            
+            echo -e "${BOLD}1. 容器文件列表:${NC}"
+            if [ -d /root/encrypted-containers ]; then
+                for img in /root/encrypted-containers/*.img; do
+                    if [ -f "$img" ]; then
+                        name=$(basename "$img" .img)
+                        size=$(du -h "$img" | cut -f1)
+                        echo "  • $name"
+                        echo "    文件: $img"
+                        echo "    大小: $size"
+                        
+                        # 检查是否打开
+                        if [ -e "/dev/mapper/$name" ]; then
+                            echo "    状态: ✓ 已打开"
+                            
+                            # 检查是否挂载
+                            if mount | grep -q "/dev/mapper/$name"; then
+                                mount_point=$(mount | grep "/dev/mapper/$name" | awk '{print $3}')
+                                echo "    挂载: ✓ $mount_point"
+                                df -h "$mount_point" | tail -1 | awk '{print "    使用: " $3 "/" $2 " (" $5 ")"}'
+                            else
+                                echo "    挂载: ✗ 未挂载"
+                            fi
+                        else
+                            echo "    状态: ○ 已关闭（加密中）"
+                        fi
+                        echo ""
+                    fi
+                done
+            else
+                echo "  （无容器）"
+            fi
+            
+            echo -e "${BOLD}2. 系统加密设备:${NC}"
+            ls -l /dev/mapper/ | grep -v "control\|swap" | tail -n +2 | awk '{print "  " $9}'
+            echo ""
+            
+            echo -e "${BOLD}3. LUKS信息:${NC}"
+            if [ -d /root/encrypted-containers ]; then
+                for img in /root/encrypted-containers/*.img; do
+                    if [ -f "$img" ]; then
+                        echo "  容器: $(basename "$img")"
+                        cryptsetup luksDump "$img" 2>/dev/null | grep -E "Version|Cipher|Hash" | sed 's/^/    /'
+                        echo ""
+                    fi
+                done
+            fi
+            ;;
+            
+        5)
+            # 修改密码
+            echo ""
+            log_step "修改容器密码..."
+            
+            # 显示编号列表
+            echo "可用的容器："
+            containers=($(ls /root/encrypted-containers/*.img 2>/dev/null))
+            
+            if [ ${#containers[@]} -eq 0 ]; then
+                log_error "没有找到容器"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            for i in "${!containers[@]}"; do
+                name=$(basename "${containers[$i]}" .img)
+                size=$(du -h "${containers[$i]}" | cut -f1)
+                echo "  [$((i+1))] $name (${size})"
+            done
+            echo ""
+            
+            read -p "选择容器（编号或名称）: " container_input
+            
+            if [ -z "$container_input" ]; then
+                log_error "输入不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 处理输入
+            if [[ "$container_input" =~ ^[0-9]+$ ]]; then
+                idx=$((container_input - 1))
+                if [ $idx -ge 0 ] && [ $idx -lt ${#containers[@]} ]; then
+                    container_file="${containers[$idx]}"
+                    container_name=$(basename "$container_file" .img)
+                    log_info "已选择: $container_name"
+                else
+                    log_error "无效的编号"
+                    read -p "按Enter返回..."
+                    return
+                fi
+            else
+                container_name="$container_input"
+                container_file="/root/encrypted-containers/${container_name}.img"
+            fi
+            
+            if [ -z "$container_name" ]; then
+                log_error "名称不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            container_file="/root/encrypted-containers/${container_name}.img"
+            
+            if [ ! -f "$container_file" ]; then
+                log_error "容器不存在: $container_file"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "修改LUKS密码..."
+            log_warn "需要输入旧密码和新密码"
+            echo ""
+            
+            cryptsetup luksChangeKey "$container_file"
+            
+            if [ $? -eq 0 ]; then
+                log_info "✓ 密码修改成功"
+            else
+                log_error "密码修改失败"
+            fi
+            ;;
+            
+        6)
+            # 删除容器
+            echo ""
+            log_step "删除加密容器..."
+            
+            # 显示编号列表
+            echo "可用的容器："
+            containers=($(ls /root/encrypted-containers/*.img 2>/dev/null))
+            
+            if [ ${#containers[@]} -eq 0 ]; then
+                log_error "没有找到容器"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            for i in "${!containers[@]}"; do
+                name=$(basename "${containers[$i]}" .img)
+                size=$(du -h "${containers[$i]}" | cut -f1)
+                # 检查是否挂载
+                if mount | grep -q "/dev/mapper/$name"; then
+                    status="（已挂载）"
+                else
+                    status="（已关闭）"
+                fi
+                echo "  [$((i+1))] $name (${size}) $status"
+            done
+            echo ""
+            
+            read -p "选择容器（编号或名称）: " container_input
+            
+            if [ -z "$container_input" ]; then
+                log_error "输入不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 处理输入
+            if [[ "$container_input" =~ ^[0-9]+$ ]]; then
+                idx=$((container_input - 1))
+                if [ $idx -ge 0 ] && [ $idx -lt ${#containers[@]} ]; then
+                    container_file="${containers[$idx]}"
+                    container_name=$(basename "$container_file" .img)
+                    log_info "已选择: $container_name"
+                else
+                    log_error "无效的编号"
+                    read -p "按Enter返回..."
+                    return
+                fi
+            else
+                container_name="$container_input"
+                container_file="/root/encrypted-containers/${container_name}.img"
+            fi
+            
+            if [ -z "$container_name" ]; then
+                log_error "名称不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            container_file="/root/encrypted-containers/${container_name}.img"
+            
+            if [ ! -f "$container_file" ]; then
+                log_error "容器不存在"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 检查是否挂载
+            if mount | grep -q "/dev/mapper/${container_name}"; then
+                log_error "容器正在使用中，请先卸载（选项[3]）"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 确认删除
+            echo ""
+            log_warn "⚠️  警告：删除后无法恢复！"
+            echo "容器: $container_file"
+            echo ""
+            read -p "确认删除？输入容器名称确认: " confirm_name
+            
+            if [ "$confirm_name" != "$container_name" ]; then
+                log_info "已取消"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 安全删除
+            echo ""
+            read -p "是否安全删除（覆盖数据）？(y/n): " secure_del
+            
+            if [[ $secure_del =~ ^[Yy]$ ]]; then
+                log_step "安全删除中（可能需要几分钟）..."
+                shred -vfz -n 3 "$container_file"
+            else
+                log_step "普通删除..."
+                rm -f "$container_file"
+            fi
+            
+            if [ $? -eq 0 ]; then
+                log_info "✓ 容器已删除"
+            else
+                log_error "删除失败"
+            fi
+            ;;
+            
+        0)
+            return
+            ;;
+            
+        *)
+            log_error "无效选项"
+            ;;
+    esac
+    
+    echo ""
+    read -p "按Enter返回主菜单..."
+}
+
 #==============================================================================
 # 安全信息展示
 #==============================================================================
@@ -5051,6 +5689,9 @@ main() {
             29)
                 option_global_tor
                 ;;
+            30)
+                option_encrypted_container
+                ;;
             0)
                 clear
                 echo ""
@@ -5068,4 +5709,3 @@ main() {
 
 # 运行主程序
 main
-
