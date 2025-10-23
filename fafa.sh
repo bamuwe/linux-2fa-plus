@@ -10,7 +10,7 @@
 #   - 防溯源工具（内存文件系统、安全删除）
 #   - 故障诊断与修复
 #
-# 作者：bamuwe
+# 作者：基于编程随想的安全经验
 # 更新：2025-10-23
 # 许可：请遵守当地法律法规
 #
@@ -3513,9 +3513,10 @@ option_metadata_cleaner() {
     echo "  [4] 清理视频/音频元数据"
     echo "  [5] 批量清理目录"
     echo "  [6] 查看文件元数据"
+    echo "  [7] 修改文件时间戳（反取证）"
     echo "  [0] 返回主菜单"
     echo ""
-    read -p "请选择 [0-6]: " meta_choice
+    read -p "请选择 [0-7]: " meta_choice
     
     case $meta_choice in
         1)
@@ -3751,6 +3752,149 @@ option_metadata_cleaner() {
             
             echo ""
             exiftool "$file_path"
+            ;;
+            
+        7)
+            # 修改文件时间戳
+            echo ""
+            log_step "修改文件时间戳（反取证）..."
+            echo ""
+            
+            log_warn "文件时间戳包括："
+            echo "  • 访问时间（atime）- 最后读取时间"
+            echo "  • 修改时间（mtime）- 最后修改时间"
+            echo "  • 改变时间（ctime）- 元数据修改时间"
+            echo ""
+            
+            read -p "文件路径（支持通配符）: " file_path
+            
+            if [ -z "$file_path" ]; then
+                log_error "路径不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            if ! ls $file_path &>/dev/null; then
+                log_error "文件不存在"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            echo "时间戳修改方式："
+            echo "  [1] 设为当前时间"
+            echo "  [2] 设为指定时间"
+            echo "  [3] 设为随机时间（反取证）"
+            echo "  [4] 设为1970-01-01（最早）"
+            echo "  [5] 批量随机化（目录）"
+            echo ""
+            read -p "选择 [1-5]: " time_choice
+            
+            case $time_choice in
+                1)
+                    # 当前时间
+                    echo ""
+                    log_step "设置为当前时间..."
+                    touch $file_path
+                    log_info "✓ 时间戳已更新为当前时间"
+                    ;;
+                    
+                2)
+                    # 指定时间
+                    echo ""
+                    log_step "设置为指定时间..."
+                    echo ""
+                    echo "格式: YYYYMMDDhhmm"
+                    echo "示例: 202301150930 (2023-01-15 09:30)"
+                    echo ""
+                    read -p "输入时间: " custom_time
+                    
+                    if [ -z "$custom_time" ]; then
+                        log_error "时间不能为空"
+                    else
+                        touch -t "$custom_time" $file_path
+                        if [ $? -eq 0 ]; then
+                            log_info "✓ 时间戳已设置为: $custom_time"
+                        else
+                            log_error "时间格式错误"
+                        fi
+                    fi
+                    ;;
+                    
+                3)
+                    # 随机时间
+                    echo ""
+                    log_step "设置为随机时间..."
+                    echo ""
+                    read -p "随机范围（天数，如30=最近30天内）: " days
+                    days=${days:-30}
+                    
+                    for file in $file_path; do
+                        if [ -f "$file" ]; then
+                            # 生成随机时间戳（最近N天内）
+                            random_days=$((RANDOM % days))
+                            random_time=$(date -d "$random_days days ago" +%Y%m%d%H%M)
+                            touch -t "$random_time" "$file"
+                            echo "  $file → $(date -d "$random_days days ago" '+%Y-%m-%d %H:%M')"
+                        fi
+                    done
+                    
+                    log_info "✓ 时间戳已随机化"
+                    ;;
+                    
+                4)
+                    # 1970-01-01
+                    echo ""
+                    log_step "设置为Unix纪元时间（1970-01-01）..."
+                    touch -t 197001010000 $file_path
+                    log_info "✓ 时间戳已设置为1970-01-01"
+                    ;;
+                    
+                5)
+                    # 批量随机化
+                    echo ""
+                    log_step "批量随机化目录时间戳..."
+                    read -p "目录路径: " dir_path
+                    
+                    if [ -z "$dir_path" ]; then
+                        log_error "路径不能为空"
+                        break
+                    fi
+                    
+                    if [ ! -d "$dir_path" ]; then
+                        log_error "目录不存在"
+                        break
+                    fi
+                    
+                    read -p "随机范围（天数，默认365）: " days
+                    days=${days:-365}
+                    
+                    file_count=0
+                    echo ""
+                    log_step "处理中..."
+                    
+                    find "$dir_path" -type f | while read file; do
+                        random_days=$((RANDOM % days))
+                        random_time=$(date -d "$random_days days ago" +%Y%m%d%H%M.%S)
+                        touch -t "$random_time" "$file"
+                        ((file_count++))
+                    done
+                    
+                    log_info "✓ 目录时间戳已随机化"
+                    echo "  处理文件: $(find "$dir_path" -type f | wc -l) 个"
+                    ;;
+                    
+                *)
+                    log_error "无效选择"
+                    ;;
+            esac
+            
+            # 显示修改后的时间
+            if [ -n "$file_path" ] && ls $file_path &>/dev/null; then
+                echo ""
+                echo "修改后的时间戳："
+                ls -l --time-style='+%Y-%m-%d %H:%M:%S' $file_path | head -5
+            fi
             ;;
             
         0)
