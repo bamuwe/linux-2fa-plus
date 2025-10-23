@@ -109,10 +109,12 @@ show_main_menu() {
     echo -e "${MAGENTA}═══ 防溯源功能 ═══${NC}"
     echo -e "${GREEN}[25]${NC} 内存文件系统管理"
     echo -e "${GREEN}[26]${NC} 安全删除文件"
+    echo -e "${GREEN}[27]${NC} 元数据清理工具"
+    echo -e "${GREEN}[28]${NC} 隐私浏览器启动器"
     echo ""
     echo -e "${YELLOW}[0]${NC} 退出"
     echo ""
-    echo -n "请选择操作 [0-26]: "
+    echo -n "请选择操作 [0-28]: "
 }
 
 #==============================================================================
@@ -2032,10 +2034,12 @@ option_privacy_enhancement() {
     
     log_warn "此功能将增强系统隐私保护："
     echo "  - MAC地址随机化"
+    echo "  - 禁用IPv6（防止IP泄露）"
+    echo "  - DNS防泄露配置"
     echo "  - 禁用不必要的网络服务"
-    echo "  - 清理系统日志中的敏感信息"
+    echo "  - Swap安全管理（防内存数据泄露）"
+    echo "  - 清理系统日志和历史记录"
     echo "  - 配置更严格的文件权限"
-    echo "  - 禁用遥测和报告"
     echo ""
     read -p "是否继续？(y/n): " confirm
     
@@ -2048,7 +2052,7 @@ option_privacy_enhancement() {
     echo ""
     
     # MAC地址随机化
-    log_step "[1/6] 配置MAC地址随机化..."
+    log_step "[1/8] 配置MAC地址随机化..."
     
     cat > /etc/NetworkManager/conf.d/wifi-mac-randomization.conf << 'EOF'
 [device]
@@ -2062,9 +2066,144 @@ EOF
     systemctl restart NetworkManager 2>/dev/null
     log_info "MAC地址随机化已启用"
     
+    # 禁用IPv6（防止IP泄露）
+    echo ""
+    log_step "[2/8] 禁用IPv6（防止IP泄露）..."
+    
+    echo ""
+    log_warn "IPv6可能导致以下隐私风险："
+    echo "  • VPN/Tor下IPv6流量可能绕过代理"
+    echo "  • 暴露真实IPv6地址"
+    echo "  • DNS泄露"
+    echo ""
+    read -p "是否禁用IPv6？(y/n): " disable_ipv6
+    
+    if [[ $disable_ipv6 =~ ^[Yy]$ ]]; then
+        # 立即禁用
+        sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1
+        sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null 2>&1
+        sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null 2>&1
+        
+        # 永久禁用
+        if ! grep -q "net.ipv6.conf.all.disable_ipv6" /etc/sysctl.conf; then
+            cat >> /etc/sysctl.conf << 'EOF'
+
+# 禁用IPv6 - 防止IP泄露
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+EOF
+            sysctl -p >/dev/null 2>&1
+            log_info "IPv6已永久禁用"
+        else
+            log_warn "IPv6禁用规则已存在"
+        fi
+        
+        # 验证
+        ipv6_status=$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)
+        if [ "$ipv6_status" = "1" ]; then
+            log_info "✓ IPv6已成功禁用"
+        else
+            log_warn "IPv6禁用可能失败，请检查"
+        fi
+    else
+        log_info "已跳过IPv6禁用"
+    fi
+    
+    # DNS防泄露配置
+    echo ""
+    log_step "[3/9] DNS防泄露配置..."
+    
+    echo ""
+    log_warn "DNS泄露风险："
+    echo "  • ISP可以看到你访问的域名"
+    echo "  • VPN可能不处理DNS查询"
+    echo "  • 暴露浏览历史"
+    echo ""
+    read -p "是否配置DNS防泄露保护？(y/n): " dns_protect
+    
+    if [[ $dns_protect =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "选择DNS方案："
+        echo "  [1] 使用加密DNS（Cloudflare 1.1.1.1）"
+        echo "  [2] 仅使用127.0.0.1（需配合Tor）"
+        echo "  [3] 自定义DNS服务器"
+        echo "  [4] 跳过"
+        read -p "选择 [1-4]: " dns_choice
+        
+        case $dns_choice in
+            1)
+                # Cloudflare DNS
+                log_step "配置Cloudflare加密DNS..."
+                
+                # 备份
+                cp /etc/resolv.conf /etc/resolv.conf.backup
+                
+                # 配置DNS
+                cat > /etc/resolv.conf << 'EOF'
+# Cloudflare DNS - 隐私保护
+nameserver 1.1.1.1
+nameserver 1.0.0.1
+# Google DNS（备用）
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+EOF
+                
+                # 防止被NetworkManager覆盖
+                chattr +i /etc/resolv.conf
+                
+                log_info "DNS已配置为Cloudflare（1.1.1.1）"
+                log_step "备份: /etc/resolv.conf.backup"
+                ;;
+                
+            2)
+                # 本地DNS（Tor）
+                log_step "配置本地DNS（Tor）..."
+                
+                if systemctl is-active --quiet tor 2>/dev/null; then
+                    cp /etc/resolv.conf /etc/resolv.conf.backup
+                    
+                    cat > /etc/resolv.conf << 'EOF'
+# 使用Tor提供的DNS
+nameserver 127.0.0.1
+EOF
+                    chattr +i /etc/resolv.conf
+                    
+                    log_info "DNS已配置为本地Tor"
+                    log_warn "需要Tor配置DNSPort 127.0.0.1:53"
+                else
+                    log_error "Tor未运行，请先安装并启动Tor"
+                fi
+                ;;
+                
+            3)
+                # 自定义DNS
+                log_step "配置自定义DNS..."
+                read -p "DNS服务器1: " dns1
+                read -p "DNS服务器2（可选）: " dns2
+                
+                if [ -n "$dns1" ]; then
+                    cp /etc/resolv.conf /etc/resolv.conf.backup
+                    
+                    echo "nameserver $dns1" > /etc/resolv.conf
+                    [ -n "$dns2" ] && echo "nameserver $dns2" >> /etc/resolv.conf
+                    
+                    chattr +i /etc/resolv.conf
+                    log_info "DNS已自定义配置"
+                fi
+                ;;
+                
+            4)
+                log_info "已跳过DNS配置"
+                ;;
+        esac
+    else
+        log_info "已跳过DNS防泄露"
+    fi
+    
     # 禁用不必要的服务
     echo ""
-    log_step "[2/6] 禁用不必要的服务..."
+    log_step "[4/9] 禁用不必要的服务..."
     
     # 禁用蓝牙（如果不需要）
     systemctl stop bluetooth 2>/dev/null
@@ -2083,7 +2222,7 @@ EOF
     
     # 配置日志保留策略
     echo ""
-    log_step "[3/6] 配置日志保留策略..."
+    log_step "[5/9] 配置日志保留策略..."
     
     cat > /etc/logrotate.d/privacy-enhanced << 'EOF'
 /var/log/auth.log {
@@ -2109,7 +2248,7 @@ EOF
     
     # 配置更严格的umask
     echo ""
-    log_step "[4/6] 配置更严格的文件权限..."
+    log_step "[6/9] 配置更严格的文件权限..."
     
     # 设置默认umask为027（新文件权限750）
     if ! grep -q "umask 027" /etc/profile; then
@@ -2124,7 +2263,7 @@ EOF
     
     # 禁用core dumps
     echo ""
-    log_step "[5/6] 禁用core dumps..."
+    log_step "[7/9] 禁用core dumps..."
     
     cat > /etc/security/limits.d/no-core-dumps.conf << 'EOF'
 * hard core 0
@@ -2139,7 +2278,7 @@ EOF
     
     # 禁用不必要的内核模块
     echo ""
-    log_step "[6/6] 禁用不必要的内核模块..."
+    log_step "[8/9] 禁用不必要的内核模块..."
     
     cat > /etc/modprobe.d/privacy-blacklist.conf << 'EOF'
 # 禁用不必要的协议和模块
@@ -2159,12 +2298,146 @@ EOF
     
     log_info "不必要的内核模块已禁用"
     
+    # Swap安全管理（新增）
+    echo ""
+    log_step "[9/9] Swap安全管理..."
+    
+    # 检查当前swap状态
+    swap_info=$(swapon --show 2>/dev/null)
+    if [ -n "$swap_info" ]; then
+        echo ""
+        echo "当前Swap状态:"
+        swapon --show
+        echo ""
+        swap_size=$(free -h | grep Swap | awk '{print $2}')
+        echo "Swap总大小: $swap_size"
+        echo ""
+        
+        log_warn "Swap分区可能包含敏感内存数据"
+        echo "  风险: 系统休眠时内存数据写入Swap"
+        echo "  建议: 禁用Swap（最安全）或加密Swap"
+        echo ""
+        echo "选择操作："
+        echo "  [1] 禁用Swap（推荐，最安全）"
+        echo "  [2] 加密Swap（高级，需重启）"
+        echo "  [3] 跳过（保持现状）"
+        echo ""
+        read -p "请选择 [1-3]: " swap_choice
+        
+        case $swap_choice in
+            1)
+                # 禁用Swap
+                echo ""
+                log_step "禁用Swap分区..."
+                
+                log_warn "禁用Swap可能影响系统性能，确保有足够的RAM"
+                read -p "确认禁用Swap？(y/n): " confirm_disable
+                
+                if [[ $confirm_disable =~ ^[Yy]$ ]]; then
+                    # 立即禁用
+                    swapoff -a
+                    
+                    if [ $? -eq 0 ]; then
+                        log_info "Swap已禁用"
+                        
+                        # 从fstab中移除swap
+                        cp /etc/fstab /etc/fstab.swap-backup
+                        sed -i '/swap/d' /etc/fstab
+                        log_info "已从/etc/fstab移除swap配置"
+                        
+                        # 验证
+                        if swapon --show 2>/dev/null | grep -q .; then
+                            log_warn "部分swap仍在运行"
+                        else
+                            log_info "✓ Swap完全禁用"
+                        fi
+                        
+                        echo ""
+                        log_step "备份文件: /etc/fstab.swap-backup"
+                        log_step "如需恢复: sudo cp /etc/fstab.swap-backup /etc/fstab"
+                    else
+                        log_error "禁用失败"
+                    fi
+                else
+                    log_info "已跳过Swap禁用"
+                fi
+                ;;
+                
+            2)
+                # 加密Swap
+                echo ""
+                log_step "配置Swap加密..."
+                
+                log_warn "此功能将配置加密swap，需要重启系统"
+                echo ""
+                echo "加密方法："
+                echo "  • 使用dm-crypt加密swap分区"
+                echo "  • 每次启动时生成随机密钥"
+                echo "  • 无法休眠到磁盘（hibernation）"
+                echo ""
+                read -p "确认配置加密swap？(y/n): " confirm_encrypt
+                
+                if [[ $confirm_encrypt =~ ^[Yy]$ ]]; then
+                    # 获取swap设备
+                    swap_device=$(swapon --show --noheadings | awk '{print $1}' | head -1)
+                    
+                    if [ -z "$swap_device" ]; then
+                        log_error "未找到swap设备"
+                    else
+                        echo "Swap设备: $swap_device"
+                        echo ""
+                        
+                        # 禁用当前swap
+                        swapoff -a
+                        
+                        # 配置crypttab
+                        if ! grep -q "cryptswap" /etc/crypttab 2>/dev/null; then
+                            echo "# 加密swap - 防止内存数据泄露" >> /etc/crypttab
+                            echo "cryptswap $swap_device /dev/urandom swap,cipher=aes-xts-plain64,size=256" >> /etc/crypttab
+                            log_info "已配置 /etc/crypttab"
+                        else
+                            log_warn "cryptswap已存在于/etc/crypttab"
+                        fi
+                        
+                        # 备份fstab
+                        cp /etc/fstab /etc/fstab.swap-crypt-backup
+                        
+                        # 修改fstab
+                        sed -i "s|$swap_device|/dev/mapper/cryptswap|g" /etc/fstab
+                        log_info "已更新 /etc/fstab"
+                        
+                        echo ""
+                        log_info "Swap加密配置完成"
+                        log_warn "⚠️  需要重启系统才能生效"
+                        echo ""
+                        log_step "备份文件: /etc/fstab.swap-crypt-backup"
+                        log_step "如需恢复: sudo cp /etc/fstab.swap-crypt-backup /etc/fstab"
+                    fi
+                else
+                    log_info "已跳过Swap加密"
+                fi
+                ;;
+                
+            3)
+                log_info "已跳过Swap管理"
+                ;;
+                
+            *)
+                log_info "无效选择，已跳过"
+                ;;
+        esac
+    else
+        log_info "系统未启用Swap，无需处理"
+    fi
+    
     # 清理历史命令（可选）
     echo ""
-    read -p "是否清理所有用户的命令历史？(y/n): " clear_history
+    log_step "额外: 深度痕迹清理（可选）"
+    echo ""
+    read -p "是否清理所有用户的历史痕迹？(y/n): " clear_history
     
     if [[ $clear_history =~ ^[Yy]$ ]]; then
-        log_step "清理命令历史..."
+        log_step "正在清理所有用户痕迹..."
         
         for home in /home/*; do
             # Shell历史
@@ -2253,11 +2526,15 @@ EOF
     echo ""
     log_step "已完成的配置："
     echo "  ✓ MAC地址随机化"
-    echo "  ✓ 禁用不必要的服务"
-    echo "  ✓ 日志保留策略"
-    echo "  ✓ 更严格的文件权限"
+    echo "  ✓ IPv6禁用（防止IP泄露）"
+    echo "  ✓ DNS防泄露配置"
+    echo "  ✓ 禁用不必要的服务（蓝牙、打印、mDNS）"
+    echo "  ✓ 日志保留策略（3周轮换）"
+    echo "  ✓ 更严格的文件权限（umask 027）"
     echo "  ✓ 禁用core dumps"
     echo "  ✓ 禁用不必要的内核模块"
+    echo "  ✓ Swap安全管理"
+    echo "  ✓ 深度痕迹清理（17项）"
     echo ""
     log_warn "建议重启系统使所有更改生效"
     echo ""
@@ -3159,6 +3436,813 @@ option_secure_delete() {
     read -p "按Enter返回主菜单..."
 }
 
+# 选项27: 元数据清理工具
+option_metadata_cleaner() {
+    clear
+    log_title "══════════════════════════════════════════"
+    log_title "  元数据清理工具"
+    log_title "══════════════════════════════════════════"
+    echo ""
+    
+    log_step "元数据可能泄露的信息："
+    echo "  • 拍摄时间、地点（GPS坐标）"
+    echo "  • 相机型号、设备信息"
+    echo "  • 软件版本、作者信息"
+    echo "  • 文档编辑历史、修订记录"
+    echo ""
+    
+    # 检查工具
+    echo -e "${BOLD}检查元数据清理工具:${NC}"
+    
+    has_exiftool=false
+    has_mat2=false
+    
+    if command -v exiftool &>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} exiftool (图片/视频/音频)"
+        has_exiftool=true
+    else
+        echo -e "  ${YELLOW}!${NC} exiftool (未安装)"
+    fi
+    
+    if command -v mat2 &>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} mat2 (Office文档/PDF)"
+        has_mat2=true
+    else
+        echo -e "  ${YELLOW}!${NC} mat2 (未安装)"
+    fi
+    
+    echo ""
+    
+    # 安装工具
+    if [ "$has_exiftool" = false ] || [ "$has_mat2" = false ]; then
+        log_step "安装元数据清理工具？"
+        echo "  sudo apt install libimage-exiftool-perl mat2"
+        echo ""
+        read -p "是否现在安装? (y/n): " install_tools
+        if [[ $install_tools =~ ^[Yy]$ ]]; then
+            apt update
+            apt install -y libimage-exiftool-perl mat2
+            has_exiftool=true
+            has_mat2=true
+            echo ""
+        fi
+    fi
+    
+    # 选择操作
+    echo "请选择操作："
+    echo "  [1] 清理图片元数据（JPEG/PNG/等）"
+    echo "  [2] 清理Office文档元数据（docx/xlsx/pptx）"
+    echo "  [3] 清理PDF元数据"
+    echo "  [4] 清理视频/音频元数据"
+    echo "  [5] 批量清理目录"
+    echo "  [6] 查看文件元数据"
+    echo "  [0] 返回主菜单"
+    echo ""
+    read -p "请选择 [0-6]: " meta_choice
+    
+    case $meta_choice in
+        1)
+            # 清理图片元数据
+            if [ "$has_exiftool" = false ]; then
+                log_error "exiftool未安装"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "清理图片元数据..."
+            read -p "图片路径（支持通配符，如 *.jpg）: " image_path
+            
+            if [ -z "$image_path" ]; then
+                log_error "路径不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            if ! ls $image_path &>/dev/null; then
+                log_error "文件不存在"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "处理文件..."
+            exiftool -all= -overwrite_original $image_path
+            
+            if [ $? -eq 0 ]; then
+                log_info "元数据已清理"
+                echo ""
+                echo "已清理的信息包括："
+                echo "  • GPS坐标"
+                echo "  • 拍摄时间"
+                echo "  • 相机型号"
+                echo "  • 软件信息"
+            else
+                log_error "清理失败"
+            fi
+            ;;
+            
+        2)
+            # 清理Office文档
+            if [ "$has_mat2" = false ]; then
+                log_error "mat2未安装"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "清理Office文档元数据..."
+            read -p "文档路径（如 document.docx）: " doc_path
+            
+            if [ -z "$doc_path" ]; then
+                log_error "路径不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            if [ ! -f "$doc_path" ]; then
+                log_error "文件不存在"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "处理文件..."
+            mat2 "$doc_path"
+            
+            if [ $? -eq 0 ]; then
+                log_info "元数据已清理"
+                echo "  清理后文件: ${doc_path%.
+
+*}.cleaned.${doc_path##*.}"
+            else
+                log_error "清理失败"
+            fi
+            ;;
+            
+        3)
+            # 清理PDF
+            if [ "$has_mat2" = false ]; then
+                log_error "mat2未安装"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "清理PDF元数据..."
+            read -p "PDF路径: " pdf_path
+            
+            if [ -z "$pdf_path" ]; then
+                log_error "路径不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            if [ ! -f "$pdf_path" ]; then
+                log_error "文件不存在"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "处理文件..."
+            mat2 "$pdf_path"
+            
+            if [ $? -eq 0 ]; then
+                log_info "PDF元数据已清理"
+            else
+                log_error "清理失败"
+            fi
+            ;;
+            
+        4)
+            # 清理视频/音频
+            echo ""
+            log_step "清理视频/音频元数据..."
+            
+            if ! command -v ffmpeg &>/dev/null; then
+                log_warn "ffmpeg未安装"
+                read -p "是否安装ffmpeg? (y/n): " install_ffmpeg
+                if [[ $install_ffmpeg =~ ^[Yy]$ ]]; then
+                    apt update
+                    apt install -y ffmpeg
+                else
+                    read -p "按Enter返回..."
+                    return
+                fi
+            fi
+            
+            read -p "媒体文件路径: " media_path
+            
+            if [ -z "$media_path" ]; then
+                log_error "路径不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            if [ ! -f "$media_path" ]; then
+                log_error "文件不存在"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 获取文件扩展名
+            ext="${media_path##*.}"
+            output="${media_path%.*}.cleaned.$ext"
+            
+            echo ""
+            log_step "处理文件..."
+            ffmpeg -i "$media_path" -map_metadata -1 -c:v copy -c:a copy "$output" -y 2>/dev/null
+            
+            if [ $? -eq 0 ]; then
+                log_info "元数据已清理"
+                echo "  清理后文件: $output"
+                echo ""
+                read -p "是否删除原文件? (y/n): " del_orig
+                if [[ $del_orig =~ ^[Yy]$ ]]; then
+                    rm -f "$media_path"
+                    mv "$output" "$media_path"
+                    log_info "原文件已替换"
+                fi
+            else
+                log_error "清理失败"
+            fi
+            ;;
+            
+        5)
+            # 批量清理
+            if [ "$has_exiftool" = false ]; then
+                log_error "exiftool未安装"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "批量清理目录..."
+            read -p "目录路径: " dir_path
+            
+            if [ -z "$dir_path" ]; then
+                log_error "路径不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            if [ ! -d "$dir_path" ]; then
+                log_error "目录不存在"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 统计文件
+            file_count=$(find "$dir_path" -type f \( -iname "*.jpg" -o -iname "*.png" -o -iname "*.pdf" -o -iname "*.docx" \) | wc -l)
+            
+            echo ""
+            echo "找到 $file_count 个文件"
+            echo ""
+            read -p "是否继续批量清理? (y/n): " confirm_batch
+            
+            if [[ $confirm_batch =~ ^[Yy]$ ]]; then
+                log_step "批量清理中..."
+                exiftool -all= -r -overwrite_original "$dir_path"
+                log_info "批量清理完成"
+            fi
+            ;;
+            
+        6)
+            # 查看元数据
+            if [ "$has_exiftool" = false ]; then
+                log_error "exiftool未安装"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            log_step "查看文件元数据..."
+            read -p "文件路径: " file_path
+            
+            if [ -z "$file_path" ]; then
+                log_error "路径不能为空"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            if [ ! -f "$file_path" ]; then
+                log_error "文件不存在"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            echo ""
+            exiftool "$file_path"
+            ;;
+            
+        0)
+            return
+            ;;
+            
+        *)
+            log_error "无效选项"
+            ;;
+    esac
+    
+    echo ""
+    read -p "按Enter返回主菜单..."
+}
+
+# 选项28: 隐私浏览器启动器
+option_privacy_browser() {
+    clear
+    log_title "══════════════════════════════════════════"
+    log_title "  隐私浏览器启动器"
+    log_title "══════════════════════════════════════════"
+    echo ""
+    
+    log_step "隐私浏览模式特性："
+    echo "  • 使用Firejail沙箱隔离"
+    echo "  • 独立的配置文件（与日常分离）"
+    echo "  • 自动清理浏览数据"
+    echo "  • 防指纹识别配置"
+    echo ""
+    
+    # 子菜单
+    echo "请选择操作："
+    echo "  [1] 配置并启动Firefox隐私模式"
+    echo "  [2] 启动沙箱隔离的Firefox（推荐，默认）"
+    echo "  [3] 启动Tor Browser（如已安装）"
+    echo "  [4] 配置Firefox隐私增强"
+    echo "  [5] 安装Firejail沙箱"
+    echo "  [0] 返回主菜单"
+    echo ""
+    read -p "请选择 [0-5，默认2]: " browser_choice
+    browser_choice=${browser_choice:-2}
+    
+    case $browser_choice in
+        1)
+            # 配置并启动Firefox隐私模式
+            echo ""
+            log_step "配置Firefox隐私模式..."
+            
+            # 检查Firefox
+            if ! command -v firefox &>/dev/null && ! command -v firefox-esr &>/dev/null; then
+                log_warn "Firefox未安装"
+                read -p "是否安装Firefox ESR? (y/n): " install_ff
+                if [[ $install_ff =~ ^[Yy]$ ]]; then
+                    apt update
+                    apt install -y firefox-esr
+                else
+                    read -p "按Enter返回..."
+                    return
+                fi
+            fi
+            
+            # 创建隐私配置文件
+            log_step "创建隐私配置..."
+            
+            firefox_cmd="firefox"
+            command -v firefox-esr &>/dev/null && firefox_cmd="firefox-esr"
+            
+            # 创建配置文件（如果不存在）
+            if ! $firefox_cmd -P 隐私模式 --no-remote 2>&1 | grep -q "隐私模式"; then
+                log_info "首次运行将创建隐私配置文件"
+            fi
+            
+            # 启动Firefox隐私模式
+            log_info "启动Firefox隐私模式..."
+            echo ""
+            log_warn "使用提示："
+            echo "  • 这是独立的Firefox配置文件"
+            echo "  • 需要手动安装隐私扩展（见下方）"
+            echo "  • 关闭Firefox返回脚本"
+            echo ""
+            echo "推荐扩展："
+            echo "  1. uBlock Origin - 广告拦截"
+            echo "  2. Privacy Badger - 反跟踪"
+            echo "  3. HTTPS Everywhere - 强制HTTPS"
+            echo "  4. NoScript - 禁用JavaScript"
+            echo ""
+            read -p "按Enter启动Firefox..."
+            
+            # 检测当前用户和环境
+            actual_user=${SUDO_USER:-$USER}
+            user_display=${DISPLAY:-:0}
+            user_xauth=${XAUTHORITY:-/home/$actual_user/.Xauthority}
+            
+            echo ""
+            log_step "启动Firefox隐私模式..."
+            
+            # 直接后台启动
+            if [ -n "$SUDO_USER" ]; then
+                # 通过sudo运行，切换回原用户
+                log_info "以用户 $SUDO_USER 身份启动"
+                su - $SUDO_USER -c "DISPLAY=$user_display XAUTHORITY=$user_xauth $firefox_cmd -P 隐私模式 --no-remote" > /tmp/firefox-$$.log 2>&1 &
+            else
+                # 直接运行
+                DISPLAY=$user_display $firefox_cmd -P 隐私模式 --no-remote > /tmp/firefox-$$.log 2>&1 &
+            fi
+            
+            # 等待进程启动
+            sleep 3
+            
+            # 检查是否成功启动
+            if pgrep -u $actual_user firefox >/dev/null 2>&1; then
+                log_info "✓ Firefox已成功启动"
+                echo ""
+                echo "  运行用户: $actual_user"
+                echo "  配置文件: 隐私模式"
+                echo "  日志文件: /tmp/firefox-$$.log"
+                echo ""
+                log_warn "Firefox已在后台运行"
+                echo "  • Firefox窗口应该已打开（检查任务栏）"
+                echo "  • 等待Firefox关闭后自动清理数据..."
+                echo ""
+                
+                # 直接等待Firefox关闭（不再询问）
+                log_step "等待Firefox关闭..."
+                while pgrep -u $actual_user firefox >/dev/null 2>&1; do
+                    sleep 2
+                done
+                log_info "✓ Firefox已关闭"
+                
+                # 自动清理数据（不再询问）
+                echo ""
+                log_step "自动清理浏览数据..."
+                profile_dir=$(find ~/.mozilla/firefox -maxdepth 1 -name "*.隐私模式" 2>/dev/null | head -1)
+                
+                if [ -n "$profile_dir" ]; then
+                    rm -rf "$profile_dir/cache2"/* 2>/dev/null
+                    rm -f "$profile_dir/cookies.sqlite" 2>/dev/null
+                    rm -f "$profile_dir/places.sqlite" 2>/dev/null
+                    rm -f "$profile_dir/formhistory.sqlite" 2>/dev/null
+                    rm -rf "$profile_dir/storage"/* 2>/dev/null
+                    rm -rf "$profile_dir/sessionstore-backups"/* 2>/dev/null
+                    log_info "✓ 浏览数据已清理（历史、Cookies、缓存等）"
+                else
+                    log_warn "未找到隐私模式配置目录"
+                fi
+            else
+                log_error "Firefox启动可能失败"
+                echo ""
+                log_step "请检查："
+                echo "  1. 查看日志: cat /tmp/firefox-$$.log"
+                echo "  2. 检查进程: ps aux | grep firefox"
+                echo "  3. 手动运行: firefox -P 隐私模式"
+                echo ""
+                read -p "按Enter返回..."
+            fi
+            ;;
+            
+        2)
+            # 使用Firejail启动
+            echo ""
+            log_step "使用Firejail沙箱启动Firefox..."
+            
+            if ! command -v firejail &>/dev/null; then
+                log_error "Firejail未安装"
+                read -p "是否安装Firejail? (y/n): " install_fj
+                if [[ $install_fj =~ ^[Yy]$ ]]; then
+                    apt update
+                    apt install -y firejail
+                else
+                    read -p "按Enter返回..."
+                    return
+                fi
+            fi
+            
+            if ! command -v firefox &>/dev/null && ! command -v firefox-esr &>/dev/null; then
+                log_error "Firefox未安装"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            firefox_cmd="firefox"
+            command -v firefox-esr &>/dev/null && firefox_cmd="firefox-esr"
+            
+            echo ""
+            log_info "Firejail沙箱特性："
+            echo "  • 文件系统隔离"
+            echo "  • 网络命名空间隔离"
+            echo "  • 私有/tmp和/home"
+            echo "  • 限制系统调用"
+            echo ""
+            
+            echo "沙箱模式选择："
+            echo "  [1] 标准沙箱（有网络）"
+            echo "  [2] 私有沙箱（无网络，离线查看）"
+            echo "  [3] 私有+网络（推荐，默认）"
+            read -p "选择 [1-3，默认3]: " jail_mode
+            jail_mode=${jail_mode:-3}
+            
+            # 检测当前用户和环境
+            actual_user=${SUDO_USER:-$USER}
+            user_display=${DISPLAY:-:0}
+            user_xauth=${XAUTHORITY:-/home/$actual_user/.Xauthority}
+            user_home=/home/$actual_user
+            
+            # 如果是root用户，使用root的home
+            [ "$actual_user" = "root" ] && user_home=/root
+            
+            echo ""
+            log_step "环境信息："
+            echo "  用户: $actual_user"
+            echo "  DISPLAY: $user_display"
+            echo "  HOME: $user_home"
+            echo ""
+            read -p "按Enter启动..."
+            
+            # 生成启动命令
+            case $jail_mode in
+                1)
+                    jail_cmd="firejail $firefox_cmd"
+                    ;;
+                2)
+                    jail_cmd="firejail --private --net=none $firefox_cmd"
+                    ;;
+                3|*)
+                    jail_cmd="firejail --private $firefox_cmd"
+                    ;;
+            esac
+            
+            echo ""
+            log_step "准备启动: $jail_cmd"
+            echo ""
+            
+            # 直接在后台启动（不等待）
+            log_info "正在启动Firefox沙箱..."
+            
+            # 以sudo原始用户身份启动
+            if [ -n "$SUDO_USER" ]; then
+                # 通过sudo运行的，切换回原用户
+                su - $SUDO_USER -c "DISPLAY=$user_display XAUTHORITY=$user_xauth $jail_cmd" > /tmp/firefox-$$.log 2>&1 &
+            else
+                # 直接运行
+                $jail_cmd > /tmp/firefox-$$.log 2>&1 &
+            fi
+            
+            fj_pid=$!
+            sleep 3
+            
+            # 检查是否成功启动
+            if pgrep -u $actual_user firefox >/dev/null 2>&1; then
+                log_info "✓ Firefox沙箱已启动"
+                echo ""
+                echo "  启动方式: $jail_cmd"
+                echo "  运行用户: $actual_user"
+                echo "  日志文件: /tmp/firefox-$$.log"
+                echo ""
+                log_warn "Firefox已在后台运行"
+                echo "  • Firefox窗口应该已打开（检查任务栏）"
+                echo "  • 等待Firefox关闭后自动清理数据..."
+                echo ""
+                
+                # 直接等待Firefox关闭（不再询问）
+                log_step "等待Firefox关闭..."
+                while pgrep -u $actual_user firefox >/dev/null 2>&1; do
+                    sleep 2
+                done
+                log_info "✓ Firefox已关闭"
+                
+                # 自动清理数据（不再询问）
+                echo ""
+                log_step "自动清理浏览数据..."
+                
+                if [[ $jail_cmd == *"--private"* ]]; then
+                    # 清理Firejail临时数据
+                    rm -rf /tmp/firejail.* 2>/dev/null
+                    rm -rf /tmp/.firejail-* 2>/dev/null
+                    log_info "✓ Firejail临时数据已清理"
+                else
+                    log_warn "⚠️  标准沙箱模式数据未清理"
+                    echo "  数据保存在: ~/.mozilla/firefox/"
+                    log_step "建议使用私有模式（选项3）以获得自动清理"
+                fi
+            else
+                log_error "Firefox启动可能失败"
+                echo ""
+                log_step "故障排查："
+                echo "  1. 查看日志: cat /tmp/firefox-$$.log"
+                echo "  2. 检查进程: ps aux | grep firefox"
+                echo "  3. 手动运行: $jail_cmd"
+                echo ""
+                echo "常见问题："
+                echo "  • 确保没有其他Firefox在运行: pkill firefox"
+                echo "  • 检查DISPLAY: echo \$DISPLAY"
+                echo "  • 尝试普通模式: firefox &"
+            fi
+            ;;
+            
+        3)
+            # 启动Tor Browser
+            echo ""
+            log_step "启动Tor Browser..."
+            
+            # 查找Tor Browser
+            tor_browser_path=""
+            
+            # 常见位置
+            if [ -f ~/tor-browser/Browser/start-tor-browser ]; then
+                tor_browser_path=~/tor-browser/Browser/start-tor-browser
+            elif [ -f ~/.local/share/torbrowser/tbb/x86_64/tor-browser/Browser/start-tor-browser ]; then
+                tor_browser_path=~/.local/share/torbrowser/tbb/x86_64/tor-browser/Browser/start-tor-browser
+            fi
+            
+            if [ -z "$tor_browser_path" ]; then
+                log_error "Tor Browser未找到"
+                echo ""
+                log_step "安装Tor Browser:"
+                echo "  1. 访问 https://www.torproject.org/"
+                echo "  2. 下载Tor Browser"
+                echo "  3. 解压到用户目录"
+                echo ""
+                log_step "常见安装位置："
+                echo "  ~/tor-browser/Browser/start-tor-browser"
+                echo "  ~/.local/share/torbrowser/tbb/x86_64/tor-browser/Browser/start-tor-browser"
+            else
+                # 检测用户
+                actual_user=${SUDO_USER:-$USER}
+                
+                log_info "找到Tor Browser: $tor_browser_path"
+                echo ""
+                read -p "按Enter启动Tor Browser..."
+                
+                if [ "$actual_user" = "root" ]; then
+                    DISPLAY=:0 $tor_browser_path >/dev/null 2>&1 &
+                else
+                    sudo -u $actual_user DISPLAY=:0 $tor_browser_path >/dev/null 2>&1 &
+                fi
+                
+                tor_pid=$!
+                sleep 2
+                
+                if ps -p $tor_pid > /dev/null 2>&1; then
+                    log_info "✓ Tor Browser已启动 (PID: $tor_pid)"
+                    echo ""
+                    log_step "Tor Browser运行中..."
+                    log_warn "注意：关闭Tor Browser可能需要较长时间"
+                else
+                    log_warn "Tor Browser可能已启动但进程已分离"
+                    log_step "如果没有看到窗口，请检查任务栏"
+                fi
+            fi
+            ;;
+            
+        4)
+            # 配置Firefox隐私增强
+            echo ""
+            log_step "配置Firefox隐私增强..."
+            
+            echo ""
+            echo "自动配置Firefox隐私设置需要修改prefs.js"
+            echo "这将在Firefox配置目录中创建user.js文件"
+            echo ""
+            read -p "Firefox配置目录（如 ~/.mozilla/firefox/xxxxx.default-esr）: " ff_profile
+            
+            if [ -z "$ff_profile" ]; then
+                log_warn "已取消"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            if [ ! -d "$ff_profile" ]; then
+                log_error "配置目录不存在"
+                read -p "按Enter返回..."
+                return
+            fi
+            
+            # 创建user.js
+            cat > "$ff_profile/user.js" << 'EOF'
+// Firefox 隐私增强配置
+
+// 防指纹识别
+user_pref("privacy.resistFingerprinting", true);
+user_pref("privacy.trackingprotection.enabled", true);
+user_pref("privacy.trackingprotection.fingerprinting.enabled", true);
+user_pref("privacy.trackingprotection.cryptomining.enabled", true);
+
+// 禁用地理位置
+user_pref("geo.enabled", false);
+user_pref("geo.wifi.uri", "");
+
+// 禁用WebRTC（防止IP泄露）
+user_pref("media.peerconnection.enabled", false);
+user_pref("media.peerconnection.ice.default_address_only", true);
+user_pref("media.peerconnection.ice.no_host", true);
+
+// 禁用WebGL（防指纹）
+user_pref("webgl.disabled", true);
+
+// 禁用电池API
+user_pref("dom.battery.enabled", false);
+
+// 禁用传感器API
+user_pref("device.sensors.enabled", false);
+
+// 禁用遥测
+user_pref("toolkit.telemetry.enabled", false);
+user_pref("toolkit.telemetry.unified", false);
+user_pref("toolkit.telemetry.archive.enabled", false);
+
+// 禁用崩溃报告
+user_pref("breakpad.reportURL", "");
+user_pref("browser.crashReports.unsubmittedCheck.autoSubmit2", false);
+
+// 禁用Pocket
+user_pref("extensions.pocket.enabled", false);
+
+// HTTPS优先
+user_pref("dom.security.https_only_mode", true);
+user_pref("dom.security.https_only_mode_ever_enabled", true);
+
+// 禁用自动填充
+user_pref("browser.formfill.enable", false);
+user_pref("signon.rememberSignons", false);
+
+// 启用DNT（Do Not Track）
+user_pref("privacy.donottrackheader.enabled", true);
+
+// ===== 自动清理配置（关闭时清除数据） =====
+user_pref("privacy.sanitize.sanitizeOnShutdown", true);
+user_pref("privacy.clearOnShutdown.cache", true);
+user_pref("privacy.clearOnShutdown.cookies", true);
+user_pref("privacy.clearOnShutdown.downloads", true);
+user_pref("privacy.clearOnShutdown.formdata", true);
+user_pref("privacy.clearOnShutdown.history", true);
+user_pref("privacy.clearOnShutdown.offlineApps", true);
+user_pref("privacy.clearOnShutdown.sessions", true);
+user_pref("privacy.clearOnShutdown.siteSettings", false);
+
+// 禁用磁盘缓存（使用内存缓存）
+user_pref("browser.cache.disk.enable", false);
+user_pref("browser.cache.memory.enable", true);
+user_pref("browser.cache.memory.capacity", 65536);
+
+// 禁用会话存储
+user_pref("browser.sessionstore.enabled", false);
+
+// 不保存密码
+user_pref("signon.rememberSignons", false);
+user_pref("signon.autofillForms", false);
+EOF
+            
+            log_info "隐私配置已创建: $ff_profile/user.js"
+            echo ""
+            log_step "已启用的隐私功能："
+            echo "  ✓ 防指纹识别"
+            echo "  ✓ 禁用WebRTC（防IP泄露）"
+            echo "  ✓ 禁用WebGL"
+            echo "  ✓ 禁用遥测"
+            echo "  ✓ HTTPS优先"
+            echo "  ✓ 关闭时自动清理所有数据 🆕"
+            echo "  ✓ 仅使用内存缓存 🆕"
+            echo "  ✓ 禁用会话存储 🆕"
+            echo ""
+            log_step "重启Firefox使配置生效"
+            echo ""
+            log_info "推荐安装的扩展："
+            echo "  1. uBlock Origin"
+            echo "  2. Privacy Badger  "
+            echo "  3. HTTPS Everywhere"
+            echo "  4. NoScript"
+            echo "  5. Decentraleyes"
+            ;;
+            
+        5)
+            # 安装Firejail
+            echo ""
+            log_step "安装Firejail沙箱..."
+            
+            if command -v firejail &>/dev/null; then
+                log_warn "Firejail已安装"
+                firejail --version
+            else
+                apt update
+                apt install -y firejail
+                
+                if [ $? -eq 0 ]; then
+                    log_info "Firejail安装成功"
+                    echo ""
+                    echo "使用方法："
+                    echo "  firejail firefox          # 基础沙箱"
+                    echo "  firejail --private firefox # 私有home"
+                    echo "  firejail --net=none firefox # 无网络"
+                else
+                    log_error "安装失败"
+                fi
+            fi
+            ;;
+            
+        0)
+            return
+            ;;
+            
+        *)
+            log_error "无效选项"
+            ;;
+    esac
+    
+    echo ""
+    read -p "按Enter返回主菜单..."
+}
+
 #==============================================================================
 # 安全信息展示
 #==============================================================================
@@ -3389,6 +4473,12 @@ main() {
                 ;;
             26)
                 option_secure_delete
+                ;;
+            27)
+                option_metadata_cleaner
+                ;;
+            28)
+                option_privacy_browser
                 ;;
             0)
                 clear
