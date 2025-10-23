@@ -2538,6 +2538,91 @@ EOF
         log_info "自动清理已配置"
     fi
     
+    # 浏览器数据清理（新增）
+    echo ""
+    log_step "额外: 浏览器数据清理（可选）"
+    echo ""
+    read -p "是否清理浏览器缓存、历史和Cookies？(y/n): " clear_browser
+    
+    if [[ $clear_browser =~ ^[Yy]$ ]]; then
+        log_step "正在清理浏览器数据..."
+        
+        for home in /home/*; do
+            username=$(basename "$home")
+            
+            # Firefox清理
+            if [ -d "$home/.mozilla/firefox" ]; then
+                echo "  清理用户: $username (Firefox)"
+                
+                for profile in "$home/.mozilla/firefox"/*.default* "$home/.mozilla/firefox"/*.*; do
+                    if [ -d "$profile" ]; then
+                        # 清理缓存
+                        [ -d "$profile/cache2" ] && rm -rf "$profile/cache2"/* 2>/dev/null
+                        
+                        # 清理Cookies
+                        [ -f "$profile/cookies.sqlite" ] && rm -f "$profile/cookies.sqlite" 2>/dev/null
+                        
+                        # 清理历史
+                        [ -f "$profile/places.sqlite" ] && rm -f "$profile/places.sqlite" 2>/dev/null
+                        
+                        # 清理表单历史
+                        [ -f "$profile/formhistory.sqlite" ] && rm -f "$profile/formhistory.sqlite" 2>/dev/null
+                        
+                        # 清理会话
+                        [ -d "$profile/sessionstore-backups" ] && rm -rf "$profile/sessionstore-backups"/* 2>/dev/null
+                        
+                        # 清理localStorage
+                        [ -d "$profile/storage" ] && rm -rf "$profile/storage"/* 2>/dev/null
+                    fi
+                done
+            fi
+            
+            # Chrome/Chromium清理
+            if [ -d "$home/.config/google-chrome" ] || [ -d "$home/.config/chromium" ]; then
+                echo "  清理用户: $username (Chrome/Chromium)"
+                
+                for browser_dir in "$home/.config/google-chrome" "$home/.config/chromium"; do
+                    if [ -d "$browser_dir/Default" ]; then
+                        # 清理缓存
+                        [ -d "$browser_dir/Default/Cache" ] && rm -rf "$browser_dir/Default/Cache"/* 2>/dev/null
+                        [ -d "$browser_dir/Default/Code Cache" ] && rm -rf "$browser_dir/Default/Code Cache"/* 2>/dev/null
+                        
+                        # 清理Cookies
+                        [ -f "$browser_dir/Default/Cookies" ] && rm -f "$browser_dir/Default/Cookies" 2>/dev/null
+                        
+                        # 清理历史
+                        [ -f "$browser_dir/Default/History" ] && rm -f "$browser_dir/Default/History" 2>/dev/null
+                        
+                        # 清理会话
+                        [ -f "$browser_dir/Default/Sessions" ] && rm -rf "$browser_dir/Default/Sessions"/* 2>/dev/null
+                    fi
+                done
+            fi
+        done
+        
+        # Root用户浏览器
+        if [ -d /root/.mozilla/firefox ]; then
+            echo "  清理用户: root (Firefox)"
+            for profile in /root/.mozilla/firefox/*.default* /root/.mozilla/firefox/*.*; do
+                if [ -d "$profile" ]; then
+                    rm -rf "$profile/cache2"/* 2>/dev/null
+                    rm -f "$profile/cookies.sqlite" 2>/dev/null
+                    rm -f "$profile/places.sqlite" 2>/dev/null
+                    rm -f "$profile/formhistory.sqlite" 2>/dev/null
+                    rm -rf "$profile/sessionstore-backups"/* 2>/dev/null
+                    rm -rf "$profile/storage"/* 2>/dev/null
+                fi
+            done
+        fi
+        
+        log_info "浏览器数据已清理"
+        echo ""
+        log_step "已清理的浏览器数据："
+        echo "  ✓ Firefox (缓存、Cookies、历史、表单、会话)"
+        echo "  ✓ Chrome/Chromium (缓存、Cookies、历史)"
+        echo "  ✓ localStorage和sessionStorage"
+    fi
+    
     echo ""
     log_info "隐私保护增强完成！"
     echo ""
@@ -2552,6 +2637,7 @@ EOF
     echo "  ✓ 禁用不必要的内核模块"
     echo "  ✓ Swap安全管理"
     echo "  ✓ 深度痕迹清理（17项）"
+    echo "  ✓ 浏览器数据清理（Firefox/Chrome）"
     echo ""
     log_warn "建议重启系统使所有更改生效"
     echo ""
@@ -4091,7 +4177,11 @@ option_privacy_browser() {
             echo "  [2] 私有沙箱（无网络，离线查看）"
             echo "  [3] 私有+网络（推荐，默认）"
             echo "  [4] 私有+Tor（最高匿名）"
-            read -p "选择 [1-4，默认3]: " jail_mode
+            echo "  [5] 宽松沙箱（兼容性优先）"
+            echo ""
+            log_warn "如果某些网站无法访问，请选择[5]宽松模式"
+            echo ""
+            read -p "选择 [1-5，默认3]: " jail_mode
             jail_mode=${jail_mode:-3}
             
             # 检测当前用户和环境
@@ -4122,8 +4212,30 @@ option_privacy_browser() {
                     mode_name="私有沙箱（无网络）"
                     ;;
                 3)
-                    jail_cmd="firejail --private $firefox_cmd"
+                    jail_cmd="firejail --private --ignore=nodri $firefox_cmd"
                     mode_name="私有沙箱+网络"
+                    
+                    echo ""
+                    log_info "私有沙箱+网络配置："
+                    echo "  • 私有文件系统（数据隔离）"
+                    echo "  • 允许GPU硬件加速（--ignore=nodri）"
+                    echo "  • 完整网络访问"
+                    echo "  • 自动清理临时数据"
+                    echo ""
+                    ;;
+                5)
+                    # 宽松沙箱（兼容性优先）
+                    jail_cmd="firejail --noprofile --private --ignore=nodri $firefox_cmd"
+                    mode_name="宽松沙箱（兼容性优先）"
+                    
+                    echo ""
+                    log_info "宽松沙箱配置："
+                    echo "  • 禁用严格配置文件（--noprofile）"
+                    echo "  • 保留私有文件系统"
+                    echo "  • 允许GPU硬件加速（--ignore=nodri）"
+                    echo "  • 允许更多系统调用"
+                    echo "  • 兼容性最好"
+                    echo ""
                     ;;
                 4)
                     # 私有+Tor（最高匿名）
