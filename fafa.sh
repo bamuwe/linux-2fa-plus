@@ -4212,7 +4212,11 @@ option_privacy_browser() {
                     mode_name="私有沙箱（无网络）"
                     ;;
                 3)
-                    jail_cmd="firejail --private --ignore=nodri $firefox_cmd"
+                    # 配置Downloads目录白名单
+                    user_downloads="$user_home/Downloads"
+                    mkdir -p "$user_downloads" 2>/dev/null
+                    
+                    jail_cmd="firejail --private --ignore=nodri --whitelist=$user_downloads $firefox_cmd"
                     mode_name="私有沙箱+网络"
                     
                     echo ""
@@ -4220,12 +4224,17 @@ option_privacy_browser() {
                     echo "  • 私有文件系统（数据隔离）"
                     echo "  • 允许GPU硬件加速（--ignore=nodri）"
                     echo "  • 完整网络访问"
-                    echo "  • 自动清理临时数据"
+                    echo "  • Downloads映射：$user_downloads"
+                    echo "  • 下载文件永久保存"
+                    echo "  • 自动清理浏览数据（不含下载）"
                     echo ""
                     ;;
                 5)
                     # 宽松沙箱（兼容性优先）
-                    jail_cmd="firejail --noprofile --private --ignore=nodri $firefox_cmd"
+                    user_downloads="$user_home/Downloads"
+                    mkdir -p "$user_downloads" 2>/dev/null
+                    
+                    jail_cmd="firejail --noprofile --private --ignore=nodri --whitelist=$user_downloads $firefox_cmd"
                     mode_name="宽松沙箱（兼容性优先）"
                     
                     echo ""
@@ -4233,6 +4242,7 @@ option_privacy_browser() {
                     echo "  • 禁用严格配置文件（--noprofile）"
                     echo "  • 保留私有文件系统"
                     echo "  • 允许GPU硬件加速（--ignore=nodri）"
+                    echo "  • Downloads映射：$user_downloads"
                     echo "  • 允许更多系统调用"
                     echo "  • 兼容性最好"
                     echo ""
@@ -4262,7 +4272,11 @@ option_privacy_browser() {
                         return
                     fi
                     
-                    jail_cmd="proxychains4 firejail --private $firefox_cmd"
+                    # 配置Downloads目录
+                    user_downloads="$user_home/Downloads"
+                    mkdir -p "$user_downloads" 2>/dev/null
+                    
+                    jail_cmd="proxychains4 firejail --private --ignore=nodri --whitelist=$user_downloads $firefox_cmd"
                     mode_name="私有沙箱+Tor（最高匿名）"
                     
                     # 显示多层路由信息
@@ -4274,7 +4288,9 @@ option_privacy_browser() {
                     echo "  • 沙箱隔离：防止文件泄露"
                     echo "  • Tor匿名：隐藏IP地址"
                     echo "  • Clash加密：隐藏Tor流量（如已启用）"
-                    echo "  • 自动清理：退出零痕迹"
+                    echo "  • Downloads映射：$user_downloads"
+                    echo "  • 下载文件永久保存"
+                    echo "  • 自动清理：浏览数据零痕迹（保留下载）"
                     echo ""
                     ;;
                 *)
@@ -4312,11 +4328,15 @@ option_privacy_browser() {
                 
                 # 显示数据存储位置
                 if [[ $jail_cmd == *"--private"* ]]; then
-                    echo "  数据位置: /tmp/firejail.*/.mozilla/"
-                    echo "  存储类型: 临时（自动清理）"
+                    echo "  浏览数据: /tmp/firejail.*/.mozilla/ (临时)"
+                    if [[ $jail_cmd == *"--whitelist"* ]]; then
+                        echo "  下载目录: $user_downloads (永久保存)"
+                    else
+                        echo "  下载目录: /tmp/firejail.*/Downloads/ (临时)"
+                    fi
                 else
-                    echo "  数据位置: ~/.mozilla/firefox/"
-                    echo "  存储类型: 永久（需手动清理）"
+                    echo "  浏览数据: ~/.mozilla/firefox/ (永久)"
+                    echo "  下载目录: ~/Downloads (永久)"
                 fi
                 
                 echo "  日志文件: /tmp/firefox-$$.log"
